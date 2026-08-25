@@ -7,14 +7,14 @@ LDFLAGS = -s -w \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.commit=$(COMMIT) \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.date=$(BUILD_DATE)
 
-.PHONY: build check docs-check format-check generate-check license-check test
+.PHONY: build check docs-check format-check source-header-check generate-check license-check test
 
 build:
 	mkdir -p bin
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/websubhub ./cmd/websubhub
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/websubhub-consolidator ./cmd/websubhub-consolidator
 
-check: format-check generate-check
+check: format-check generate-check source-header-check
 	$(GO) vet ./...
 	$(GO) test -shuffle=on ./...
 	$(GO) test -race ./...
@@ -27,6 +27,9 @@ format-check:
 generate-check:
 	$(GO) generate ./...
 	@git diff --exit-code
+
+source-header-check:
+	$(GO) run ./internal/tools/sourceheaders
 
 license-check:
 	$(GO) run ./internal/tools/licensecheck

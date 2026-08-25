@@ -12,7 +12,7 @@ binaries.
 - Allowed dependency licenses are Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC,
   and MIT unless an explicit legal review records another license.
 - Keep provider SDKs behind internal provider packages.
-- Do not raise the Go 1.25 minimum solely because a newer local toolchain is
+- Do not raise the Go 1.25.8 minimum solely because a newer local toolchain is
   available.
 - Run vulnerability, secret, and license checks in CI. A suppression must be
   narrow, justified, reviewed, and time-bounded.
@@ -20,3 +20,13 @@ binaries.
 `lib-websubhub` will be pinned to a released version when the protocol
 composition slice starts; the repository does not depend on an unpublished
 working tree.
+
+## Reviewed direct dependencies
+
+| Module | Pinned version | License | Purpose |
+|---|---|---|---|
+| `github.com/twmb/franz-go` | `v1.21.6` | BSD-3-Clause | Kafka producer, consumer, protocol, TLS/SASL integration |
+| `github.com/twmb/franz-go/pkg/kadm` | `v1.18.0` | BSD-3-Clause | Kafka destination and consumer-group administration |
+
+Kafka types remain inside the Kafka provider. The provider does not expose a
+public plugin SDK or make Kafka identifiers part of product identity.

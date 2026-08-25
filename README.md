@@ -4,10 +4,11 @@ WebSubHub is an open-source HTTP Event Broker. Publishers use HTTP, WebSubHub
 owns durable event and subscription behavior, and verified subscribers receive
 at-least-once HTTP push delivery.
 
-The repository is implementing the `v0.5.0` Kafka BYOB preview. Slice 1 now
-defines provider-neutral persistence contracts, capability validation, concrete
-versioned state records, deterministic reduction, snapshots, and conformance
-fixtures. The two commands expose build identity but do not yet start runtimes.
+The repository is implementing the `v0.5.0` Kafka BYOB preview. Through Slice
+2, it defines provider-neutral persistence contracts, capability validation,
+concrete versioned state records, deterministic reduction, snapshots, and
+conformance fixtures, plus a franz-go Kafka provider with a real-broker test
+profile. The two commands expose build identity but do not yet start runtimes.
 
 ## Product boundaries
 
@@ -25,8 +26,9 @@ the full administration CLI are outside the `v0.5.0` boundary.
 
 ## Build
 
-Go 1.25 or newer is required. The supported baseline is Go 1.25.x, and CI also
-tests Go 1.26.x. GNU Make is optional and provides the repository shortcuts
+Go 1.25.8 or newer is required, and the latest security patch for the selected
+Go release line must be used. CI tests Go 1.25.x, 1.26.x, and 1.27.x. GNU Make
+is optional and provides the repository shortcuts
 shown below.
 
 ```sh
@@ -38,6 +40,14 @@ make build
 
 Builds may set `VERSION`, `COMMIT`, and `BUILD_DATE`; release automation will
 provide them from the protected release workflow.
+
+The portable Kafka suite runs against a real broker when its address is set:
+
+```sh
+WEBSUBHUB_TEST_KAFKA_BROKERS=127.0.0.1:9092 \
+  go test -v -run '^TestKafkaConformance$' \
+  ./internal/persistence/messagestore/kafka
+```
 
 ## Architecture decisions
 

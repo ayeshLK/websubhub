@@ -27,6 +27,7 @@ product identities.
 ## Required workflow
 
 Read the relevant ADRs before changing behavior. Record a new ADR before
+Every Go source and test file must begin with the repository Apache-2.0 copyright header.
 introducing a public contract, persisted schema, provider capability, security
 boundary, or compatibility rule. Unknown persisted versions require explicit
 offline migration; runtime startup must not silently mutate schemas.

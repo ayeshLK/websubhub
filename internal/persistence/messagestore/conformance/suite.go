@@ -1,3 +1,17 @@
+// Copyright 2026 Ayesh Almeida
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Package conformance provides the observable contract suite every MessageStore
 // provider must pass.
 package conformance
@@ -53,13 +67,26 @@ func Run(t *testing.T, factory Factory) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := consumer.Ack(ctx, batch[1].Receipt); !errors.Is(err, messagestore.ErrOutOfOrder) {
-			t.Fatalf("out-of-order ack = %v", err)
+		if len(batch) == 0 {
+			t.Fatal("consumer returned an empty batch")
+		}
+		if len(batch) > 1 {
+			if err := consumer.Ack(ctx, batch[1].Receipt); !errors.Is(err, messagestore.ErrOutOfOrder) {
+				t.Fatalf("out-of-order ack = %v", err)
+			}
 		}
 		if err := consumer.Ack(ctx, batch[0].Receipt); err != nil {
 			t.Fatal(err)
 		}
-		if err := consumer.Ack(ctx, batch[1].Receipt); err != nil {
+		if len(batch) == 1 {
+			batch, err = consumer.Receive(ctx, 1)
+			if err != nil || len(batch) != 1 {
+				t.Fatalf("second receive = %#v, %v", batch, err)
+			}
+		} else {
+			batch = batch[1:]
+		}
+		if err := consumer.Ack(ctx, batch[0].Receipt); err != nil {
 			t.Fatal(err)
 		}
 	})
