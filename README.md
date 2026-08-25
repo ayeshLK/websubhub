@@ -4,9 +4,10 @@ WebSubHub is an open-source HTTP Event Broker. Publishers use HTTP, WebSubHub
 owns durable event and subscription behavior, and verified subscribers receive
 at-least-once HTTP push delivery.
 
-The repository is at the initial `v0.5.0` Kafka BYOB preview implementation
-stage. It currently contains the repository and quality baseline only; the two
-commands expose build identity but do not yet start product runtimes.
+The repository is implementing the `v0.5.0` Kafka BYOB preview. Slice 1 now
+defines provider-neutral persistence contracts, capability validation, concrete
+versioned state records, deterministic reduction, snapshots, and conformance
+fixtures. The two commands expose build identity but do not yet start runtimes.
 
 ## Product boundaries
 
