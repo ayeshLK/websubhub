@@ -15,7 +15,9 @@ not present in the certificate.
 `none` intentionally serves the internal endpoint without authentication for
 trusted preview deployments. Omitting mTLS never causes a silent fallback:
 partial certificate settings and mismatches between the selected mode and its
-settings fail configuration validation.
+settings fail configuration validation. The hub configures its client identity
+under `consolidator.auth.mtls`; the consolidator configures its server identity
+and client CA under `server.auth.mtls`.
 
 ## Consequences
 

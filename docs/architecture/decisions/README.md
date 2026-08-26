@@ -14,6 +14,7 @@ tests, configuration, and release claims.
 - [ADR 0009: Optional mTLS for the internal snapshot endpoint](0009-internal-mtls.md)
 - [ADR 0010: Provider-neutral consumer catch-up boundary](0010-consumer-catch-up-boundary.md)
 - [ADR 0011: Barrier snapshot for gap-free hub startup](0011-snapshot-startup-barrier.md)
+- [ADR 0012: Process-specific configuration roots](0012-process-specific-configuration.md)
 - [Open implementation gates](open-gates.md)
 
 Persisted-schema changes require an explicit replacement ADR, offline migration

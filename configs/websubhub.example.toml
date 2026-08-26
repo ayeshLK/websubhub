@@ -3,20 +3,14 @@ id = "hub-a"
 listen = ":8080"
 
 [consolidator]
-listen = ":8081"
 endpoint = "https://consolidator.internal:8081"
 timeout = "10s"
 
-[internal_auth]
-# Use "none" only when the internal listener is isolated on a trusted network.
+[consolidator.auth]
+# Use "none" only when the internal connection stays on a trusted network.
 mode = "mtls"
 
-[internal_auth.server]
-certificate_file = "/run/secrets/consolidator.crt"
-private_key_file = "/run/secrets/consolidator.key"
-client_ca_file = "/run/secrets/internal-client-ca.crt"
-
-[internal_auth.client]
+[consolidator.auth.mtls]
 certificate_file = "/run/secrets/hub.crt"
 private_key_file = "/run/secrets/hub.key"
 server_ca_file = "/run/secrets/internal-server-ca.crt"
@@ -35,8 +29,8 @@ default_replication_factor = -1
 [message_store.kafka.tls]
 enabled = true
 ca_file = "/run/secrets/kafka-ca.crt"
-certificate_file = "/run/secrets/kafka-client.crt"
-private_key_file = "/run/secrets/kafka-client.key"
+certificate_file = "/run/secrets/kafka-hub.crt"
+private_key_file = "/run/secrets/kafka-hub.key"
 server_name = ""
 insecure_skip_verify = false
 

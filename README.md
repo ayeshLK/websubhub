@@ -54,13 +54,22 @@ WEBSUBHUB_TEST_KAFKA_BROKERS=127.0.0.1:9092 \
 
 ## Configuration
 
-The canonical schema is TOML; see
-[`configs/websubhub.example.toml`](configs/websubhub.example.toml). Environment
-variables override leaf fields with double underscores, so
-`WEBSUBHUB__SERVER__ID=hub-b` overrides `server.id`. Unknown keys and partial
-mTLS settings fail validation.
+Configuration uses two strict process-specific TOML roots:
+
+- [`configs/websubhub.example.toml`](configs/websubhub.example.toml) contains
+  the hub listener, stable server ID, consolidator client, and MessageStore.
+- [`configs/websubhub-consolidator.example.toml`](configs/websubhub-consolidator.example.toml)
+  contains the consolidator listener and MessageStore.
+
+Shared Kafka and TLS value types are implemented once, but each loader rejects
+settings owned by the other process. Environment variables override leaf fields
+relative to that process's root using double underscores. For example,
+`WEBSUBHUB__SERVER__ID=hub-b` overrides the hub's `server.id` and is rejected
+by the consolidator.
 
 Internal hub-to-consolidator authentication is explicitly `mtls` or `none`.
+The hub's client identity is under `consolidator.auth.mtls`; the
+consolidator's server identity and client CA are under `server.auth.mtls`.
 mTLS is recommended and verifies both peers. `none` is intended only for an
 isolated trusted network and never results from a partial TLS configuration.
 

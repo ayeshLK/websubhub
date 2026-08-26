@@ -21,18 +21,17 @@ import (
 	"testing"
 )
 
-func TestLoadTOMLAndEnvironmentOverrides(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "websubhub.toml")
-	data := `[server]
+func TestLoadHubTOMLAndEnvironmentOverrides(t *testing.T) {
+	path := writeConfig(t, "websubhub.toml", `[server]
 id = "file-id"
 
 [consolidator]
 endpoint = "https://consolidator.internal:8443"
 
-[internal_auth]
+[consolidator.auth]
 mode = "mtls"
 
-[internal_auth.client]
+[consolidator.auth.mtls]
 certificate_file = "client.crt"
 private_key_file = "client.key"
 server_ca_file = "ca.crt"
@@ -42,11 +41,8 @@ provider = "kafka"
 
 [message_store.kafka]
 brokers = ["kafka:9092"]
-`
-	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(path, []string{"WEBSUBHUB__SERVER__ID=environment-id"}, Hub)
+`)
+	cfg, err := LoadHub(path, []string{"WEBSUBHUB__SERVER__ID=environment-id"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,11 +51,24 @@ brokers = ["kafka:9092"]
 	}
 }
 
+func TestLoadConsolidatorEnvironmentOverrides(t *testing.T) {
+	path := writeConfig(t, "websubhub-consolidator.toml", `[message_store.kafka]
+brokers = ["kafka:9092"]
+`)
+	loaded, err := LoadConsolidator(path, []string{"WEBSUBHUB__SERVER__LISTEN=:9081"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.Listen != ":9081" || loaded.MessageStore.Kafka.ClientID != "websubhub-consolidator" {
+		t.Fatalf("config = %#v", loaded)
+	}
+}
+
 func TestEnvironmentArrayOverride(t *testing.T) {
-	cfg, err := Load("", []string{
+	cfg, err := LoadHub("", []string{
 		"WEBSUBHUB__SERVER__ID=hub-1",
 		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["one:9092", "two:9092"]`,
-	}, Hub)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,57 +77,101 @@ func TestEnvironmentArrayOverride(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsUnknownFileAndEnvironmentKeys(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "unknown.toml")
-	if err := os.WriteFile(path, []byte("[server]\nunknown = true\n"), 0o600); err != nil {
-		t.Fatal(err)
+func TestProcessRootsRejectEachOthersKeys(t *testing.T) {
+	hubOnly := writeConfig(t, "hub-only.toml", `[server]
+id = "hub-1"
+
+[message_store.kafka]
+brokers = ["kafka:9092"]
+`)
+	if _, err := LoadConsolidator(hubOnly, nil); err == nil {
+		t.Fatal("consolidator accepted hub server ID")
 	}
-	if _, err := Load(path, nil, Hub); err == nil {
+	consolidatorOnly := writeConfig(t, "consolidator-only.toml", `[server.auth]
+mode = "none"
+
+[message_store.kafka]
+brokers = ["kafka:9092"]
+`)
+	if _, err := LoadHub(consolidatorOnly, []string{"WEBSUBHUB__SERVER__ID=hub-1"}); err == nil {
+		t.Fatal("hub accepted consolidator server authentication")
+	}
+	if _, err := LoadConsolidator("", []string{
+		"WEBSUBHUB__SERVER__ID=invalid",
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	}); err == nil {
+		t.Fatal("consolidator accepted hub-only environment override")
+	}
+}
+
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	path := writeConfig(t, "unknown.toml", "[server]\nunknown = true\n")
+	if _, err := LoadHub(path, nil); err == nil {
 		t.Fatal("unknown TOML key accepted")
 	}
-	if _, err := Load("", []string{"WEBSUBHUB__SERVER__UNKNOWN=value"}, Hub); err == nil {
+	if _, err := LoadHub("", []string{"WEBSUBHUB__SERVER__UNKNOWN=value"}); err == nil {
 		t.Fatal("unknown environment override accepted")
 	}
 }
 
 func TestMTLSValidationCannotSilentlyDowngrade(t *testing.T) {
-	cfg := Defaults()
-	cfg.Server.ID = "hub-1"
-	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
-	cfg.InternalAuth.Mode = "mtls"
-	cfg.Consolidator.Endpoint = "https://consolidator:8443"
-	if err := cfg.Validate(Hub); err == nil || !strings.Contains(err.Error(), "all required") {
+	hub := HubDefaults()
+	hub.Server.ID = "hub-1"
+	hub.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	hub.Consolidator.Auth.Mode = "mtls"
+	hub.Consolidator.Endpoint = "https://consolidator:8443"
+	if err := hub.Validate(); err == nil || !strings.Contains(err.Error(), "all required") {
 		t.Fatalf("partial hub mTLS error = %v", err)
 	}
-	cfg.InternalAuth.Mode = "none"
-	cfg.Consolidator.Endpoint = "http://consolidator:8081"
-	cfg.InternalAuth.Client.CertificateFile = "unexpected.crt"
-	if err := cfg.Validate(Hub); err == nil {
-		t.Fatal("client certificate accepted in none mode")
+	hub.Consolidator.Auth.Mode = "none"
+	hub.Consolidator.Endpoint = "http://consolidator:8081"
+	hub.Consolidator.Auth.MTLS.CertificateFile = "unexpected.crt"
+	if err := hub.Validate(); err == nil {
+		t.Fatal("hub client certificate accepted in none mode")
+	}
+
+	consolidator := ConsolidatorDefaults()
+	consolidator.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	consolidator.Server.Auth.Mode = "mtls"
+	if err := consolidator.Validate(); err == nil || !strings.Contains(err.Error(), "all required") {
+		t.Fatalf("partial consolidator mTLS error = %v", err)
 	}
 }
 
-func TestExampleConfiguration(t *testing.T) {
-	path := filepath.Join("..", "..", "configs", "websubhub.example.toml")
-	if _, err := Load(path, nil, Hub); err != nil {
+func TestExampleConfigurations(t *testing.T) {
+	root := filepath.Join("..", "..", "configs")
+	if _, err := LoadHub(filepath.Join(root, "websubhub.example.toml"), nil); err != nil {
 		t.Fatalf("hub example: %v", err)
 	}
-	if _, err := Load(path, nil, Consolidator); err != nil {
+	if _, err := LoadConsolidator(filepath.Join(root, "websubhub-consolidator.example.toml"), nil); err != nil {
 		t.Fatalf("consolidator example: %v", err)
 	}
 }
 
 func TestKafkaSecurityConfigurationIsStrict(t *testing.T) {
-	cfg := Defaults()
+	cfg := HubDefaults()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.MessageStore.Kafka.TLS.Enabled = true
-	if err := cfg.Validate(Hub); err == nil {
+	if err := cfg.Validate(); err == nil {
 		t.Fatal("TLS without a CA accepted")
+	}
+	cfg.MessageStore.Kafka.TLS = KafkaTLS{InsecureSkipVerify: true}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("TLS option accepted while TLS is disabled")
 	}
 	cfg.MessageStore.Kafka.TLS = KafkaTLS{}
 	cfg.MessageStore.Kafka.SASL.Mechanism = "plain"
-	if err := cfg.Validate(Hub); err == nil {
+	if err := cfg.Validate(); err == nil {
 		t.Fatal("SASL without secret file accepted")
 	}
+}
+
+func writeConfig(t *testing.T, name, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
