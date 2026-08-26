@@ -55,6 +55,7 @@ type HubConfig struct {
 	Protocol     ResourceProtocol   `toml:"protocol"`
 	Consolidator ConsolidatorClient `toml:"consolidator"`
 	State        HubState           `toml:"state"`
+	Delivery     Delivery           `toml:"delivery"`
 	MessageStore MessageStore       `toml:"message_store"`
 }
 
@@ -105,6 +106,40 @@ type HubStateEvents struct {
 
 type HubStateStartup struct {
 	BufferMax int `toml:"buffer_max"`
+}
+
+type Delivery struct {
+	ConsumerBatchSize int           `toml:"consumer_batch_size"`
+	ReconnectInterval Duration      `toml:"reconnect_interval"`
+	RequestTimeout    Duration      `toml:"request_timeout"`
+	MaxResponseBody   int64         `toml:"max_response_body"`
+	DLQDestination    string        `toml:"dlq_destination"`
+	Retry             DeliveryRetry `toml:"retry"`
+}
+
+type DeliveryRetry struct {
+	Strategy     string            `toml:"strategy"`
+	HTTP         HTTPRetry         `toml:"http"`
+	MessageStore MessageStoreRetry `toml:"message_store"`
+}
+
+type HTTPRetry struct {
+	MaxAttempts      int      `toml:"max_attempts"`
+	InitialInterval  Duration `toml:"initial_interval"`
+	BackoffFactor    float64  `toml:"backoff_factor"`
+	MaxInterval      Duration `toml:"max_interval"`
+	JitterFactor     float64  `toml:"jitter_factor"`
+	RetryStatusCodes []int    `toml:"retry_status_codes"`
+	ResetOnExhaust   bool     `toml:"reset_on_exhaust"`
+}
+
+type MessageStoreRetry struct {
+	Delay                 Duration `toml:"delay"`
+	RedeliverStatusCodes  []int    `toml:"redeliver_status_codes"`
+	DeadLetterStatusCodes []int    `toml:"dead_letter_status_codes"`
+	FailStatusCodes       []int    `toml:"fail_status_codes"`
+	DefaultAction         string   `toml:"default_action"`
+	NetworkFailureAction  string   `toml:"network_failure_action"`
 }
 
 type ConsolidatorState struct {
@@ -191,6 +226,28 @@ func HubDefaults() HubConfig {
 		State: HubState{
 			Events:  HubStateEvents{Destination: defaultStateEventsDestination, ConsumerBatchSize: 100},
 			Startup: HubStateStartup{BufferMax: 1000},
+		},
+		Delivery: Delivery{
+			ConsumerBatchSize: 100,
+			ReconnectInterval: Duration(5 * time.Second),
+			RequestTimeout:    Duration(30 * time.Second),
+			MaxResponseBody:   64 << 10,
+			DLQDestination:    "websub-delivery-dlq",
+			Retry: DeliveryRetry{
+				Strategy: "http",
+				HTTP: HTTPRetry{
+					MaxAttempts: 5, InitialInterval: Duration(time.Second),
+					BackoffFactor: 2, MaxInterval: Duration(30 * time.Second),
+					JitterFactor:     .2,
+					RetryStatusCodes: []int{408, 429, 500, 502, 503, 504},
+				},
+				MessageStore: MessageStoreRetry{
+					Delay:                 Duration(5 * time.Second),
+					RedeliverStatusCodes:  []int{408, 429, 500, 502, 503, 504},
+					DeadLetterStatusCodes: []int{400, 404},
+					DefaultAction:         "fail", NetworkFailureAction: "redeliver",
+				},
+			},
 		},
 		MessageStore: messageStoreDefaults("websubhub"),
 	}
@@ -283,7 +340,102 @@ func (c HubConfig) Validate() error {
 	if err := c.State.validate(); err != nil {
 		return err
 	}
+	if err := c.Delivery.validate(); err != nil {
+		return err
+	}
 	return c.MessageStore.validate()
+}
+
+func (c Delivery) validate() error {
+	if c.ConsumerBatchSize < 1 {
+		return errors.New("delivery.consumer_batch_size must be positive")
+	}
+	if c.ReconnectInterval <= 0 || c.RequestTimeout <= 0 {
+		return errors.New("delivery intervals and timeouts must be positive")
+	}
+	if c.MaxResponseBody < 1 {
+		return errors.New("delivery.max_response_body must be positive")
+	}
+	if strings.TrimSpace(c.DLQDestination) == "" {
+		return errors.New("delivery.dlq_destination is required")
+	}
+	switch c.Retry.Strategy {
+	case "http":
+		if err := c.Retry.HTTP.validate(); err != nil {
+			return err
+		}
+	case "message_store":
+		if err := c.Retry.MessageStore.validate(); err != nil {
+			return err
+		}
+	default:
+		return errors.New("delivery.retry.strategy must be \"http\" or \"message_store\"")
+	}
+	return nil
+}
+
+func (c HTTPRetry) validate() error {
+	if c.MaxAttempts < 1 || c.InitialInterval <= 0 || c.MaxInterval <= 0 {
+		return errors.New("delivery.retry.http attempts and intervals must be positive")
+	}
+	if c.InitialInterval > c.MaxInterval {
+		return errors.New("delivery.retry.http.initial_interval must not exceed max_interval")
+	}
+	if c.BackoffFactor < 1 {
+		return errors.New("delivery.retry.http.backoff_factor must be at least 1")
+	}
+	if c.JitterFactor < 0 || c.JitterFactor > 1 {
+		return errors.New("delivery.retry.http.jitter_factor must be between 0 and 1")
+	}
+	return validateStatusCodes("delivery.retry.http.retry_status_codes", c.RetryStatusCodes)
+}
+
+func (c MessageStoreRetry) validate() error {
+	if c.Delay < 0 {
+		return errors.New("delivery.retry.message_store.delay must not be negative")
+	}
+	seen := make(map[int]string)
+	groups := []struct {
+		name  string
+		codes []int
+	}{
+		{"redeliver_status_codes", c.RedeliverStatusCodes},
+		{"dead_letter_status_codes", c.DeadLetterStatusCodes},
+		{"fail_status_codes", c.FailStatusCodes},
+	}
+	for _, group := range groups {
+		if err := validateStatusCodes("delivery.retry.message_store."+group.name, group.codes); err != nil {
+			return err
+		}
+		for _, code := range group.codes {
+			if previous, ok := seen[code]; ok {
+				return fmt.Errorf("delivery retry status %d is configured for both %s and %s", code, previous, group.name)
+			}
+			seen[code] = group.name
+		}
+	}
+	if err := validateDeliveryAction("default_action", c.DefaultAction); err != nil {
+		return err
+	}
+	return validateDeliveryAction("network_failure_action", c.NetworkFailureAction)
+}
+
+func validateStatusCodes(name string, codes []int) error {
+	for _, code := range codes {
+		if code < 300 || code > 599 || code == 410 {
+			return fmt.Errorf("%s contains invalid status %d", name, code)
+		}
+	}
+	return nil
+}
+
+func validateDeliveryAction(name, action string) error {
+	switch action {
+	case "redeliver", "dead_letter", "fail":
+		return nil
+	default:
+		return fmt.Errorf("delivery.retry.message_store.%s must be redeliver, dead_letter, or fail", name)
+	}
 }
 
 func (c ResourceProtocol) validate() error {
@@ -512,17 +664,33 @@ func setValue(field reflect.Value, raw string) error {
 			return err
 		}
 		field.SetInt(value)
-	case reflect.Slice:
-		var wrapper struct {
-			Value []string `toml:"value"`
-		}
-		if field.Type() != reflect.TypeFor[[]string]() {
-			return fmt.Errorf("unsupported slice type %s", field.Type())
-		}
-		if err := toml.Unmarshal([]byte("value = "+raw), &wrapper); err != nil {
+	case reflect.Float32, reflect.Float64:
+		value, err := strconv.ParseFloat(raw, field.Type().Bits())
+		if err != nil {
 			return err
 		}
-		field.Set(reflect.ValueOf(wrapper.Value))
+		field.SetFloat(value)
+	case reflect.Slice:
+		switch field.Type() {
+		case reflect.TypeFor[[]string]():
+			var wrapper struct {
+				Value []string `toml:"value"`
+			}
+			if err := toml.Unmarshal([]byte("value = "+raw), &wrapper); err != nil {
+				return err
+			}
+			field.Set(reflect.ValueOf(wrapper.Value))
+		case reflect.TypeFor[[]int]():
+			var wrapper struct {
+				Value []int `toml:"value"`
+			}
+			if err := toml.Unmarshal([]byte("value = "+raw), &wrapper); err != nil {
+				return err
+			}
+			field.Set(reflect.ValueOf(wrapper.Value))
+		default:
+			return fmt.Errorf("unsupported slice type %s", field.Type())
+		}
 	default:
 		return fmt.Errorf("unsupported field type %s", field.Type())
 	}

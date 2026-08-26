@@ -38,6 +38,34 @@ consumer_batch_size = 100
 # Startup fails without acknowledging a partial buffer when this bound is exceeded.
 buffer_max = 1000
 
+[delivery]
+consumer_batch_size = 100
+reconnect_interval = "5s"
+request_timeout = "30s"
+max_response_body = 65536
+dlq_destination = "websub-delivery-dlq"
+
+[delivery.retry]
+# Exactly one strategy executes: "http" or "message_store".
+strategy = "http"
+
+[delivery.retry.http]
+max_attempts = 5
+initial_interval = "1s"
+backoff_factor = 2.0
+max_interval = "30s"
+jitter_factor = 0.2
+retry_status_codes = [408, 429, 500, 502, 503, 504]
+reset_on_exhaust = false
+
+[delivery.retry.message_store]
+delay = "5s"
+redeliver_status_codes = [408, 429, 500, 502, 503, 504]
+dead_letter_status_codes = [400, 404]
+fail_status_codes = []
+default_action = "fail"
+network_failure_action = "redeliver"
+
 [message_store]
 provider = "kafka"
 

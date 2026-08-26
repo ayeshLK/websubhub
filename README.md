@@ -5,7 +5,7 @@ owns durable event and subscription behavior, and verified subscribers receive
 at-least-once HTTP push delivery.
 
 The repository is implementing the `v0.5.0` Kafka BYOB preview. Through Slice
-4, it defines provider-neutral persistence contracts, capability validation,
+5, it defines provider-neutral persistence contracts, capability validation,
 concrete versioned state records, deterministic reduction, snapshots, and
 conformance fixtures, plus a franz-go Kafka provider with a real-broker test
 profile. Slice 3 adds strict TOML configuration, hierarchical environment
@@ -14,8 +14,11 @@ barrier snapshots, consolidator readiness, and gap-free buffered hub projection
 startup. Slice 4 pins and composes `lib-websubhub` v0.6.0, maps resource-topic
 lifecycle callbacks to durable state events, seals subscription secrets behind
 an injected boundary, assigns stable product identities, and rejects preview
-renewal without scheduling lease expiry. Content ingestion and delivery follow
-in Slice 5.
+renewal without scheduling lease expiry. Slice 5 persists exact publisher
+representations, runs one sequential consumer per locally owned subscription,
+delivers through the pinned library with stable message IDs and HMAC support,
+and implements explicit HTTP-managed or MessageStore-managed retry, durable
+acknowledgement, stale/removal transitions, reconnect, and DLQ behavior.
 
 ## Product boundaries
 
@@ -62,7 +65,7 @@ Configuration uses two strict process-specific TOML roots:
 
 - [`configs/websubhub.example.toml`](configs/websubhub.example.toml) contains
   the hub listener, public URL, bounded protocol behavior, stable server ID,
-  state projection, consolidator client, and MessageStore.
+  state projection, consolidator client, delivery policy, and MessageStore.
 - [`configs/websubhub-consolidator.example.toml`](configs/websubhub-consolidator.example.toml)
   contains the consolidator listener and MessageStore.
 

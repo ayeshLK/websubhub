@@ -108,6 +108,42 @@ func TestResourceProtocolEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestDeliveryEnvironmentOverrides(t *testing.T) {
+	cfg, err := LoadHub("", []string{
+		"WEBSUBHUB__SERVER__ID=hub-1",
+		"WEBSUBHUB__DELIVERY__RETRY__STRATEGY=message_store",
+		"WEBSUBHUB__DELIVERY__RETRY__HTTP__BACKOFF_FACTOR=1.5",
+		"WEBSUBHUB__DELIVERY__RETRY__HTTP__RETRY_STATUS_CODES=[429,503]",
+		"WEBSUBHUB__DELIVERY__RETRY__MESSAGE_STORE__DEAD_LETTER_STATUS_CODES=[400,404]",
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Delivery.Retry.Strategy != "message_store" || cfg.Delivery.Retry.HTTP.BackoffFactor != 1.5 || len(cfg.Delivery.Retry.HTTP.RetryStatusCodes) != 2 || len(cfg.Delivery.Retry.MessageStore.DeadLetterStatusCodes) != 2 {
+		t.Fatalf("delivery config = %#v", cfg.Delivery)
+	}
+}
+
+func TestDeliveryConfigurationRejectsAmbiguousMappings(t *testing.T) {
+	cfg := HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Delivery.Retry.Strategy = "message_store"
+	cfg.Delivery.Retry.MessageStore.RedeliverStatusCodes = []int{410}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "410") {
+		t.Fatalf("410 mapping error = %v", err)
+	}
+	cfg = HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Delivery.Retry.Strategy = "message_store"
+	cfg.Delivery.Retry.MessageStore.FailStatusCodes = []int{503}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "both") {
+		t.Fatalf("duplicate mapping error = %v", err)
+	}
+}
+
 func TestProcessRootsRejectEachOthersKeys(t *testing.T) {
 	hubOnly := writeConfig(t, "hub-only.toml", `[server]
 id = "hub-1"

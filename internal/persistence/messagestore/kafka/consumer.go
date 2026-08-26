@@ -348,7 +348,7 @@ func (c *Consumer) DeadLetter(ctx context.Context, receipt messagestore.Receipt,
 	if len(c.pending) == 0 || receipt != c.pending[0].receipt {
 		return messagestore.ErrOutOfOrder
 	}
-	if record.Message.ID != c.pending[0].message.ID {
+	if c.pending[0].message.ID != "" && record.Message.ID != c.pending[0].message.ID {
 		return errors.New("dead-letter message does not match pending record")
 	}
 	record.Message.Metadata = cloneMetadata(record.Message.Metadata)

@@ -17,6 +17,7 @@ tests, configuration, and release claims.
 - [ADR 0012: Process-specific configuration roots](0012-process-specific-configuration.md)
 - [ADR 0013: State runtime configuration and ownership](0013-state-runtime-configuration.md)
 - [ADR 0014: Resource protocol adapter and preview lifecycle](0014-resource-protocol-adapter.md)
+- [ADR 0015: Exact content ingestion and delivery state machine](0015-content-ingestion-and-delivery.md)
 - [Open implementation gates](open-gates.md)
 
 Persisted-schema changes require an explicit replacement ADR, offline migration
