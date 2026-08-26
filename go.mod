@@ -3,6 +3,7 @@ module github.com/ayeshLK/websubhub
 go 1.25.8
 
 require (
+	github.com/ayeshLK/lib-websubhub v0.6.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/twmb/franz-go v1.21.6
 	github.com/twmb/franz-go/pkg/kadm v1.18.0

@@ -41,6 +41,21 @@ func ContentDestination(exactTopicURL string) (messagestore.Destination, error) 
 	return messagestore.Destination("websub-topic-" + digest(exactTopicURL)), nil
 }
 
+func TopicID(exactTopicURL string) (string, error) {
+	if exactTopicURL == "" {
+		return "", errors.New("topic URL is required")
+	}
+	return "topic-" + digest(exactTopicURL), nil
+}
+
+func SubscriptionID(exactTopicURL, exactCallbackURL string, originalSubscriptionTime time.Time) (string, error) {
+	value, err := subscriptionDigest(exactTopicURL, exactCallbackURL, originalSubscriptionTime)
+	if err != nil {
+		return "", err
+	}
+	return "subscription-" + value, nil
+}
+
 func HubStateConsumerID(serverID string) (messagestore.ConsumerID, error) {
 	if serverID == "" {
 		return "", errors.New("server ID is required")
@@ -49,6 +64,14 @@ func HubStateConsumerID(serverID string) (messagestore.ConsumerID, error) {
 }
 
 func SubscriptionConsumerID(exactTopicURL, exactCallbackURL string, originalSubscriptionTime time.Time) (messagestore.ConsumerID, error) {
+	value, err := subscriptionDigest(exactTopicURL, exactCallbackURL, originalSubscriptionTime)
+	if err != nil {
+		return "", err
+	}
+	return messagestore.ConsumerID("delivery-" + value), nil
+}
+
+func subscriptionDigest(exactTopicURL, exactCallbackURL string, originalSubscriptionTime time.Time) (string, error) {
 	if exactTopicURL == "" || exactCallbackURL == "" || originalSubscriptionTime.IsZero() {
 		return "", errors.New("topic, callback, and original subscription time are required")
 	}
@@ -56,7 +79,7 @@ func SubscriptionConsumerID(exactTopicURL, exactCallbackURL string, originalSubs
 	writeField(hasher, exactTopicURL)
 	writeField(hasher, exactCallbackURL)
 	writeField(hasher, originalSubscriptionTime.UTC().Format(time.RFC3339Nano))
-	return messagestore.ConsumerID("subscription-" + hex.EncodeToString(hasher.Sum(nil))), nil
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func digest(value string) string {

@@ -86,6 +86,37 @@ func TestReducerDoesNotMutateInput(t *testing.T) {
 	}
 }
 
+func TestReducerCoalescesConcurrentActiveRenewal(t *testing.T) {
+	t.Parallel()
+	reducer := Reducer{}
+	snapshot, _, err := reducer.Apply(EmptySnapshot(), topicEvent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err = reducer.Apply(snapshot, subscriptionEvent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewal := subscriptionEvent()
+	renewal.Meta = meta("event-concurrent-renewal")
+	renewal.Subscription.ID = "sub-2"
+	renewal.Subscription.ConsumerID = "consumer-2"
+	renewal.Subscription.LeaseStartedAt = testTime.Add(time.Second)
+	unchanged, changed, err := reducer.Apply(snapshot, renewal)
+	if err != nil || changed || unchanged.Revision != snapshot.Revision {
+		t.Fatalf("concurrent renewal: changed=%v revision=%d err=%v", changed, unchanged.Revision, err)
+	}
+	snapshot, _, err = reducer.Apply(snapshot, SubscriptionUnsubscribed{
+		Meta: meta("event-unsubscribe"), SubscriptionID: "sub-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := reducer.Apply(snapshot, renewal); err != nil || !changed {
+		t.Fatalf("resubscribe after removal: changed=%v err=%v", changed, err)
+	}
+}
+
 func TestSnapshotEncodingIsDeterministicAndStrict(t *testing.T) {
 	t.Parallel()
 	reducer := Reducer{}

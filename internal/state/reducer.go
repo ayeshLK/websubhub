@@ -94,6 +94,13 @@ func apply(next *Snapshot, event Event) (bool, error) {
 			}
 			return false, fmt.Errorf("%w: subscription ID already exists", ErrInvalidTransition)
 		}
+		for _, existing := range next.Subscriptions {
+			if existing.Status != SubscriptionRemoved &&
+				existing.TopicURL == desired.TopicURL &&
+				existing.CallbackURL == desired.CallbackURL {
+				return false, nil
+			}
+		}
 		next.Subscriptions[desired.ID] = desired
 		return true, nil
 	case SubscriptionUnsubscribed:

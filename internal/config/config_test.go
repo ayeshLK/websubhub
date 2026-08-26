@@ -92,6 +92,22 @@ func TestEnvironmentArrayOverride(t *testing.T) {
 	}
 }
 
+func TestResourceProtocolEnvironmentOverrides(t *testing.T) {
+	cfg, err := LoadHub("", []string{
+		"WEBSUBHUB__SERVER__ID=hub-1",
+		"WEBSUBHUB__SERVER__PUBLIC_URL=https://hub.example.test/websub",
+		"WEBSUBHUB__PROTOCOL__PUBLISHER_EXTENSION_ENABLED=true",
+		"WEBSUBHUB__PROTOCOL__VERIFICATION_WORKERS=8",
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Protocol.PublisherExtensionEnabled || cfg.Protocol.VerificationWorkers != 8 {
+		t.Fatalf("protocol config = %#v", cfg.Protocol)
+	}
+}
+
 func TestProcessRootsRejectEachOthersKeys(t *testing.T) {
 	hubOnly := writeConfig(t, "hub-only.toml", `[server]
 id = "hub-1"
@@ -222,6 +238,30 @@ func TestStateConfigurationValidation(t *testing.T) {
 	consolidator.State.Events.Retention = 0
 	if err := consolidator.Validate(); err == nil || !strings.Contains(err.Error(), "retention") {
 		t.Fatalf("consolidator retention error = %v", err)
+	}
+}
+
+func TestResourceProtocolValidation(t *testing.T) {
+	cfg := HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Server.PublicURL = "https://hub.example.test/websub?secret=query"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "public_url") {
+		t.Fatalf("public URL error = %v", err)
+	}
+	cfg = HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Protocol.DefaultLease = Duration(11 * 24 * time.Hour)
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "default_lease") {
+		t.Fatalf("lease error = %v", err)
+	}
+	cfg = HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Protocol.VerificationQueue = 0
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "workers and queue") {
+		t.Fatalf("verification bounds error = %v", err)
 	}
 }
 

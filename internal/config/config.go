@@ -52,14 +52,28 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 
 type HubConfig struct {
 	Server       HubServer          `toml:"server"`
+	Protocol     ResourceProtocol   `toml:"protocol"`
 	Consolidator ConsolidatorClient `toml:"consolidator"`
 	State        HubState           `toml:"state"`
 	MessageStore MessageStore       `toml:"message_store"`
 }
 
 type HubServer struct {
-	ID     string `toml:"id"`
-	Listen string `toml:"listen"`
+	ID        string `toml:"id"`
+	Listen    string `toml:"listen"`
+	PublicURL string `toml:"public_url"`
+}
+
+type ResourceProtocol struct {
+	PublisherExtensionEnabled bool     `toml:"publisher_extension_enabled"`
+	DefaultLease              Duration `toml:"default_lease"`
+	MaxLease                  Duration `toml:"max_lease"`
+	MaxRequestBody            int64    `toml:"max_request_body"`
+	MaxCallbackBody           int64    `toml:"max_callback_body"`
+	VerificationTimeout       Duration `toml:"verification_timeout"`
+	VerificationWorkers       int      `toml:"verification_workers"`
+	VerificationQueue         int      `toml:"verification_queue"`
+	HubErrorCallbackEnabled   bool     `toml:"hub_error_callback_enabled"`
 }
 
 type ConsolidatorClient struct {
@@ -163,7 +177,16 @@ type KafkaSASL struct {
 
 func HubDefaults() HubConfig {
 	return HubConfig{
-		Server:       HubServer{Listen: ":8080"},
+		Server: HubServer{Listen: ":8080", PublicURL: "http://127.0.0.1:8080/websub"},
+		Protocol: ResourceProtocol{
+			DefaultLease:        Duration(10 * 24 * time.Hour),
+			MaxLease:            Duration(10 * 24 * time.Hour),
+			MaxRequestBody:      64 << 10,
+			MaxCallbackBody:     4 << 10,
+			VerificationTimeout: Duration(10 * time.Second),
+			VerificationWorkers: 4,
+			VerificationQueue:   1024,
+		},
 		Consolidator: ConsolidatorClient{Endpoint: "http://127.0.0.1:8081", Timeout: Duration(10 * time.Second), Auth: ClientAuth{Mode: "none"}},
 		State: HubState{
 			Events:  HubStateEvents{Destination: defaultStateEventsDestination, ConsumerBatchSize: 100},
@@ -232,6 +255,14 @@ func (c HubConfig) Validate() error {
 	if c.Server.Listen == "" {
 		return errors.New("server.listen is required")
 	}
+	publicURL, err := url.Parse(c.Server.PublicURL)
+	if err != nil || publicURL.Host == "" || (publicURL.Scheme != "http" && publicURL.Scheme != "https") ||
+		publicURL.User != nil || publicURL.RawQuery != "" || publicURL.Fragment != "" {
+		return errors.New("server.public_url must be an absolute HTTP URL without userinfo, query, or fragment")
+	}
+	if err := c.Protocol.validate(); err != nil {
+		return err
+	}
 	if c.Consolidator.Timeout <= 0 {
 		return errors.New("consolidator.timeout must be positive")
 	}
@@ -253,6 +284,26 @@ func (c HubConfig) Validate() error {
 		return err
 	}
 	return c.MessageStore.validate()
+}
+
+func (c ResourceProtocol) validate() error {
+	if c.DefaultLease < Duration(time.Second) || c.MaxLease < Duration(time.Second) ||
+		c.DefaultLease.Value()%time.Second != 0 || c.MaxLease.Value()%time.Second != 0 {
+		return errors.New("protocol lease values must be positive whole seconds")
+	}
+	if c.DefaultLease > c.MaxLease {
+		return errors.New("protocol.default_lease must not exceed protocol.max_lease")
+	}
+	if c.MaxRequestBody < 1 || c.MaxCallbackBody < 1 {
+		return errors.New("protocol body limits must be positive")
+	}
+	if c.VerificationTimeout <= 0 {
+		return errors.New("protocol.verification_timeout must be positive")
+	}
+	if c.VerificationWorkers < 1 || c.VerificationQueue < 1 {
+		return errors.New("protocol verification workers and queue must be positive")
+	}
+	return nil
 }
 
 func (c ConsolidatorConfig) Validate() error {

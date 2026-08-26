@@ -58,4 +58,15 @@ func TestSubscriptionIdentityUsesUnambiguousFields(t *testing.T) {
 	if later == one {
 		t.Fatalf("subscription timestamp did not change identity")
 	}
+	productID, err := SubscriptionID("ab", "c", started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productID == string(one) || !strings.HasPrefix(productID, "subscription-") || !strings.HasPrefix(string(one), "delivery-") {
+		t.Fatalf("product ID %q and consumer ID %q are not independently namespaced", productID, one)
+	}
+	topicID, err := TopicID("ab")
+	if err != nil || !strings.HasPrefix(topicID, "topic-") {
+		t.Fatalf("topic ID = %q, %v", topicID, err)
+	}
 }

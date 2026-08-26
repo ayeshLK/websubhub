@@ -1,6 +1,19 @@
 [server]
 id = "hub-a"
 listen = ":8080"
+public_url = "https://hub.example.com/websub"
+
+[protocol]
+# The publisher extension is product-specific and is not part of W3C WebSub.
+publisher_extension_enabled = true
+default_lease = "240h"
+max_lease = "240h"
+max_request_body = 65536
+max_callback_body = 4096
+verification_timeout = "10s"
+verification_workers = 4
+verification_queue = 1024
+hub_error_callback_enabled = false
 
 [consolidator]
 endpoint = "https://consolidator.internal:8081"
