@@ -46,7 +46,7 @@ func Run(t *testing.T, factory Factory) {
 		}
 		message.Body[0] = 'X'
 		message.Metadata["safe"] = "mutated"
-		batch, err := consumer.Receive(ctx, 10)
+		batch, err := receive(consumer, ctx, 10)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +63,7 @@ func Run(t *testing.T, factory Factory) {
 		consumer := open(t, ctx, h, "consumer-order")
 		_ = h.Producer().Send(ctx, h.Destination(), sample("message-1"))
 		_ = h.Producer().Send(ctx, h.Destination(), sample("message-2"))
-		batch, err := consumer.Receive(ctx, 2)
+		batch, err := receive(consumer, ctx, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +79,7 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatal(err)
 		}
 		if len(batch) == 1 {
-			batch, err = consumer.Receive(ctx, 1)
+			batch, err = receive(consumer, ctx, 1)
 			if err != nil || len(batch) != 1 {
 				t.Fatalf("second receive = %#v, %v", batch, err)
 			}
@@ -95,11 +95,11 @@ func Run(t *testing.T, factory Factory) {
 		ctx := context.Background()
 		consumer := open(t, ctx, h, "consumer-nack")
 		_ = h.Producer().Send(ctx, h.Destination(), sample("message-1"))
-		batch, _ := consumer.Receive(ctx, 1)
+		batch, _ := receive(consumer, ctx, 1)
 		if err := consumer.Nack(ctx, batch[0].Receipt, messagestore.NackOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		redelivered, err := consumer.Receive(ctx, 1)
+		redelivered, err := receive(consumer, ctx, 1)
 		if err != nil || len(redelivered) != 1 || redelivered[0].Message.ID != "message-1" {
 			t.Fatalf("redelivery = %#v, %v", redelivered, err)
 		}
@@ -110,7 +110,7 @@ func Run(t *testing.T, factory Factory) {
 		consumer := open(t, ctx, h, "consumer-dlq")
 		message := sample("message-1")
 		_ = h.Producer().Send(ctx, h.Destination(), message)
-		batch, _ := consumer.Receive(ctx, 1)
+		batch, _ := receive(consumer, ctx, 1)
 		record := messagestore.DeadLetter{Destination: h.DLQDestination(), Message: message, TopicID: "topic-1", SubscriptionID: "sub-1", FailureClass: "malformed", Attempt: 1}
 		if err := consumer.DeadLetter(ctx, batch[0].Receipt, record); err != nil {
 			t.Fatal(err)
@@ -119,7 +119,7 @@ func Run(t *testing.T, factory Factory) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		delivered, err := dlq.Receive(ctx, 1)
+		delivered, err := receive(dlq, ctx, 1)
 		if err != nil || len(delivered) != 1 || delivered[0].Message.ID != message.ID {
 			t.Fatalf("DLQ = %#v, %v", delivered, err)
 		}
@@ -129,12 +129,12 @@ func Run(t *testing.T, factory Factory) {
 		ctx := context.Background()
 		consumer := open(t, ctx, h, "consumer-close")
 		_ = h.Producer().Send(ctx, h.Destination(), sample("message-1"))
-		batch, _ := consumer.Receive(ctx, 1)
+		batch, _ := receive(consumer, ctx, 1)
 		_ = consumer.Ack(ctx, batch[0].Receipt)
 		if err := consumer.Close(ctx, messagestore.CloseTemporary); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := consumer.Receive(ctx, 1); !errors.Is(err, messagestore.ErrClosed) {
+		if _, err := receive(consumer, ctx, 1); !errors.Is(err, messagestore.ErrClosed) {
 			t.Fatalf("closed receive = %v", err)
 		}
 		if err := consumer.Reconnect(ctx); err != nil {
@@ -144,9 +144,31 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatal(err)
 		}
 		reopened := open(t, ctx, h, "consumer-close")
-		replayed, err := reopened.Receive(ctx, 1)
+		replayed, err := receive(reopened, ctx, 1)
 		if err != nil || len(replayed) != 1 {
 			t.Fatalf("permanent close did not reset progress: %#v %v", replayed, err)
+		}
+	})
+	t.Run("replay catch-up boundary", func(t *testing.T) {
+		h := factory(t)
+		ctx := context.Background()
+		consumer := open(t, ctx, h, "consumer-catch-up")
+		caughtUp, err := consumer.CaughtUp(ctx)
+		if err != nil || !caughtUp {
+			t.Fatalf("empty catch-up = %v, %v", caughtUp, err)
+		}
+		_ = h.Producer().Send(ctx, h.Destination(), sample("catch-up-1"))
+		caughtUp, err = consumer.CaughtUp(ctx)
+		if err != nil || caughtUp {
+			t.Fatalf("lagging catch-up = %v, %v", caughtUp, err)
+		}
+		batch, err := consumer.Receive(ctx, 1)
+		if err != nil || len(batch.Messages) != 1 {
+			t.Fatalf("non-empty receive = %#v, %v", batch, err)
+		}
+		caughtUp, err = consumer.CaughtUp(ctx)
+		if err != nil || !caughtUp {
+			t.Fatalf("non-empty catch-up = %v, %v", caughtUp, err)
 		}
 	})
 	t.Run("capabilities", func(t *testing.T) {
@@ -159,6 +181,11 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func receive(consumer messagestore.Consumer, ctx context.Context, max int) ([]messagestore.ReceivedMessage, error) {
+	batch, err := consumer.Receive(ctx, max)
+	return batch.Messages, err
 }
 
 func open(t *testing.T, ctx context.Context, h Harness, id string) messagestore.Consumer {

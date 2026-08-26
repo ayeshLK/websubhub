@@ -1,0 +1,46 @@
+[server]
+id = "hub-a"
+listen = ":8080"
+
+[consolidator]
+listen = ":8081"
+endpoint = "https://consolidator.internal:8081"
+timeout = "10s"
+
+[internal_auth]
+# Use "none" only when the internal listener is isolated on a trusted network.
+mode = "mtls"
+
+[internal_auth.server]
+certificate_file = "/run/secrets/consolidator.crt"
+private_key_file = "/run/secrets/consolidator.key"
+client_ca_file = "/run/secrets/internal-client-ca.crt"
+
+[internal_auth.client]
+certificate_file = "/run/secrets/hub.crt"
+private_key_file = "/run/secrets/hub.key"
+server_ca_file = "/run/secrets/internal-server-ca.crt"
+server_name = "consolidator.internal"
+
+[message_store]
+provider = "kafka"
+
+[message_store.kafka]
+brokers = ["kafka-1:9093", "kafka-2:9093", "kafka-3:9093"]
+client_id = "websubhub"
+dial_timeout = "10s"
+request_timeout_overhead = "30s"
+default_replication_factor = -1
+
+[message_store.kafka.tls]
+enabled = true
+ca_file = "/run/secrets/kafka-ca.crt"
+certificate_file = "/run/secrets/kafka-client.crt"
+private_key_file = "/run/secrets/kafka-client.key"
+server_name = ""
+insecure_skip_verify = false
+
+[message_store.kafka.sasl]
+mechanism = ""
+username = ""
+password_file = ""

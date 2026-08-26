@@ -24,15 +24,22 @@ import (
 )
 
 type fakeConsumerClient struct {
-	fetches        kgo.Fetches
+	fetches, last  kgo.Fetches
 	commits        []*kgo.Record
 	allows, closes int
 }
 
 func (f *fakeConsumerClient) PollRecords(context.Context, int) kgo.Fetches {
 	result := f.fetches
+	f.last = result
 	f.fetches = nil
 	return result
+}
+func (f *fakeConsumerClient) CommittedOffsets() map[string]map[int32]kgo.EpochOffset {
+	return nil
+}
+func (f *fakeConsumerClient) UncommittedOffsets() map[string]map[int32]kgo.EpochOffset {
+	return fetchPositions(f.last)
 }
 func (f *fakeConsumerClient) CommitRecords(_ context.Context, records ...*kgo.Record) error {
 	f.commits = append(f.commits, records...)
@@ -64,7 +71,7 @@ func TestConsumerEnforcesContiguousProgress(t *testing.T) {
 	records := []*kgo.Record{storedRecord(t, "message-1", 4), storedRecord(t, "message-2", 5)}
 	client := &fakeConsumerClient{fetches: fetches(records...)}
 	consumer := testConsumer(client, new(fakeMessageProducer), new(fakeAdminClient))
-	batch, err := consumer.Receive(t.Context(), 2)
+	batch, err := receiveMessages(consumer, t.Context(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +84,7 @@ func TestConsumerEnforcesContiguousProgress(t *testing.T) {
 	if err := consumer.Nack(t.Context(), batch[0].Receipt, messagestore.NackOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	redelivery, err := consumer.Receive(t.Context(), 2)
+	redelivery, err := receiveMessages(consumer, t.Context(), 2)
 	if err != nil || redelivery[0].Receipt != batch[0].Receipt {
 		t.Fatalf("redelivery = %#v, %v", redelivery, err)
 	}
@@ -100,7 +107,7 @@ func TestConsumerDeadLetterValidatesBeforePublish(t *testing.T) {
 	client := &fakeConsumerClient{fetches: fetches(storedRecord(t, "message-1", 4))}
 	producer := new(fakeMessageProducer)
 	consumer := testConsumer(client, producer, new(fakeAdminClient))
-	batch, err := consumer.Receive(t.Context(), 1)
+	batch, err := receiveMessages(consumer, t.Context(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +152,30 @@ func TestConsumerClosureIntent(t *testing.T) {
 	}
 }
 
+func receiveMessages(consumer messagestore.Consumer, ctx context.Context, max int) ([]messagestore.ReceivedMessage, error) {
+	batch, err := consumer.Receive(ctx, max)
+	return batch.Messages, err
+}
+
+func fetchPositions(fetches kgo.Fetches) map[string]map[int32]kgo.EpochOffset {
+	positions := make(map[string]map[int32]kgo.EpochOffset)
+	for _, fetch := range fetches {
+		for _, topic := range fetch.Topics {
+			if positions[topic.Topic] == nil {
+				positions[topic.Topic] = make(map[int32]kgo.EpochOffset)
+			}
+			for _, partition := range topic.Partitions {
+				position := partition.LogStartOffset
+				if len(partition.Records) != 0 {
+					position = partition.Records[len(partition.Records)-1].Offset + 1
+				}
+				positions[topic.Topic][partition.Partition] = kgo.EpochOffset{Offset: position}
+			}
+		}
+	}
+	return positions
+}
+
 func testConsumer(client consumerClient, producer messagestore.Producer, admin adminClient) *Consumer {
 	spec := messagestore.ConsumerSpec{ID: "consumer-1", Destination: "events", StartPosition: messagestore.StartEarliest}
 	return &Consumer{spec: spec, metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, client: client, producer: producer, admin: admin}
@@ -161,7 +192,11 @@ func storedRecord(t *testing.T, id string, offset int64) *kgo.Record {
 	return record
 }
 func fetches(records ...*kgo.Record) kgo.Fetches {
-	return kgo.Fetches{{Topics: []kgo.FetchTopic{{Topic: "events", Partitions: []kgo.FetchPartition{{Partition: 0, Records: records}}}}}}
+	highWatermark := int64(0)
+	if len(records) != 0 {
+		highWatermark = records[len(records)-1].Offset + 1
+	}
+	return kgo.Fetches{{Topics: []kgo.FetchTopic{{Topic: "events", Partitions: []kgo.FetchPartition{{Partition: 0, HighWatermark: highWatermark, Records: records}}}}}}
 }
 
 func TestConsumerRetainsMalformedRecordAtContiguousHead(t *testing.T) {
@@ -170,7 +205,7 @@ func TestConsumerRetainsMalformedRecordAtContiguousHead(t *testing.T) {
 	valid := storedRecord(t, "message-2", 5)
 	client := &fakeConsumerClient{fetches: fetches(malformed, valid)}
 	consumer := testConsumer(client, new(fakeMessageProducer), new(fakeAdminClient))
-	batch, err := consumer.Receive(t.Context(), 2)
+	batch, err := receiveMessages(consumer, t.Context(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}

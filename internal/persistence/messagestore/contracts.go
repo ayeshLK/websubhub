@@ -52,6 +52,13 @@ type ReceivedMessage struct {
 	Receipt Receipt
 }
 
+// ReceiveBatch reports messages and whether this poll delivered through the
+// provider end boundary observed for every assigned destination shard.
+type ReceiveBatch struct {
+	Messages []ReceivedMessage
+	CaughtUp bool
+}
+
 type Producer interface {
 	Send(context.Context, Destination, Message) error
 	Close(context.Context) error
@@ -92,7 +99,8 @@ type DeadLetter struct {
 
 type Consumer interface {
 	Metadata() ConsumerMetadata
-	Receive(context.Context, int) ([]ReceivedMessage, error)
+	Receive(context.Context, int) (ReceiveBatch, error)
+	CaughtUp(context.Context) (bool, error)
 	Ack(context.Context, Receipt) error
 	Nack(context.Context, Receipt, NackOptions) error
 	DeadLetter(context.Context, Receipt, DeadLetter) error

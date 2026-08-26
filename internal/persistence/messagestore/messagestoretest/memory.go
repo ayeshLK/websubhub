@@ -74,7 +74,7 @@ func (a administrator) OpenConsumer(_ context.Context, spec messagestore.Consume
 	if _, ok := a.store.progress[key]; !ok && spec.StartPosition == messagestore.StartLatest {
 		a.store.progress[key] = len(a.store.messages[spec.Destination])
 	}
-	return &consumer{store: a.store, metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, key: key}, nil
+	return &consumer{store: a.store, observed: a.store.progress[key], metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, key: key}, nil
 }
 func (a administrator) Capabilities(context.Context) (messagestore.Capabilities, error) {
 	return a.store.capabilities, nil
@@ -85,22 +85,24 @@ type consumer struct {
 	store    *Store
 	metadata messagestore.ConsumerMetadata
 	key      string
+	observed int
 	closed   bool
 }
 
 func (c *consumer) Metadata() messagestore.ConsumerMetadata { return c.metadata }
-func (c *consumer) Receive(_ context.Context, max int) ([]messagestore.ReceivedMessage, error) {
+func (c *consumer) Receive(_ context.Context, max int) (messagestore.ReceiveBatch, error) {
 	c.store.mu.Lock()
 	defer c.store.mu.Unlock()
 	if c.closed {
-		return nil, messagestore.ErrClosed
+		return messagestore.ReceiveBatch{}, messagestore.ErrClosed
 	}
 	position := c.store.progress[c.key]
 	available := c.store.messages[c.metadata.Destination]
 	if max < 1 {
-		return nil, fmt.Errorf("max must be positive")
+		return messagestore.ReceiveBatch{}, fmt.Errorf("max must be positive")
 	}
 	end := min(position+max, len(available))
+	c.observed = end
 	result := make([]messagestore.ReceivedMessage, 0, end-position)
 	for i := position; i < end; i++ {
 		message := available[i]
@@ -108,7 +110,15 @@ func (c *consumer) Receive(_ context.Context, max int) ([]messagestore.ReceivedM
 		message.Metadata = maps.Clone(message.Metadata)
 		result = append(result, messagestore.ReceivedMessage{Message: message, Receipt: messagestore.Receipt{Consumer: c.metadata.ID, Value: strconv.Itoa(i)}})
 	}
-	return result, nil
+	return messagestore.ReceiveBatch{Messages: result, CaughtUp: end == len(available)}, nil
+}
+func (c *consumer) CaughtUp(_ context.Context) (bool, error) {
+	c.store.mu.Lock()
+	defer c.store.mu.Unlock()
+	if c.closed {
+		return false, messagestore.ErrClosed
+	}
+	return c.observed >= len(c.store.messages[c.metadata.Destination]), nil
 }
 func (c *consumer) Ack(_ context.Context, receipt messagestore.Receipt) error {
 	c.store.mu.Lock()
@@ -148,6 +158,7 @@ func (c *consumer) Reconnect(context.Context) error {
 	c.store.mu.Lock()
 	defer c.store.mu.Unlock()
 	c.closed = false
+	c.observed = c.store.progress[c.key]
 	return nil
 }
 func (c *consumer) Close(_ context.Context, intent messagestore.ClosureIntent) error {

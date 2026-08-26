@@ -19,11 +19,31 @@ package statestore
 import (
 	"context"
 
+	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/ayeshLK/websubhub/internal/state"
 )
 
+type EventRecord struct {
+	Event   state.Event
+	Receipt messagestore.Receipt
+}
+
+type EventBatch struct {
+	Records  []EventRecord
+	CaughtUp bool
+}
+
+type EventConsumer interface {
+	Receive(context.Context, int) (EventBatch, error)
+	CaughtUp(context.Context) (bool, error)
+	Ack(context.Context, messagestore.Receipt) error
+	Close(context.Context, messagestore.ClosureIntent) error
+}
+
 type Store interface {
+	Initialize(context.Context) error
 	Append(context.Context, state.Event) error
+	OpenEvents(context.Context, messagestore.ConsumerID, messagestore.StartPosition) (EventConsumer, error)
 	LoadSnapshot(context.Context) (state.Snapshot, error)
 	SaveSnapshot(context.Context, state.Snapshot) error
 }

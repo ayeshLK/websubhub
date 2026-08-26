@@ -5,10 +5,13 @@ owns durable event and subscription behavior, and verified subscribers receive
 at-least-once HTTP push delivery.
 
 The repository is implementing the `v0.5.0` Kafka BYOB preview. Through Slice
-2, it defines provider-neutral persistence contracts, capability validation,
+3, it defines provider-neutral persistence contracts, capability validation,
 concrete versioned state records, deterministic reduction, snapshots, and
 conformance fixtures, plus a franz-go Kafka provider with a real-broker test
-profile. The two commands expose build identity but do not yet start runtimes.
+profile. Slice 3 adds strict TOML configuration, hierarchical environment
+overrides, optional internal mTLS, MessageStore-backed StateStore behavior,
+barrier snapshots, consolidator readiness, and gap-free buffered hub projection
+startup. Runtime composition with the public WebSub handler follows in Slice 4.
 
 ## Product boundaries
 
@@ -48,6 +51,18 @@ WEBSUBHUB_TEST_KAFKA_BROKERS=127.0.0.1:9092 \
   go test -v -run '^TestKafkaConformance$' \
   ./internal/persistence/messagestore/kafka
 ```
+
+## Configuration
+
+The canonical schema is TOML; see
+[`configs/websubhub.example.toml`](configs/websubhub.example.toml). Environment
+variables override leaf fields with double underscores, so
+`WEBSUBHUB__SERVER__ID=hub-b` overrides `server.id`. Unknown keys and partial
+mTLS settings fail validation.
+
+Internal hub-to-consolidator authentication is explicitly `mtls` or `none`.
+mTLS is recommended and verifies both peers. `none` is intended only for an
+isolated trusted network and never results from a partial TLS configuration.
 
 ## Architecture decisions
 

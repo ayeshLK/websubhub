@@ -10,6 +10,10 @@ tests, configuration, and release claims.
 - [ADR 0005: Acknowledgement and duplicate semantics](0005-acknowledgement-and-duplicates.md)
 - [ADR 0006: Durable mutation visibility](0006-mutation-visibility.md)
 - [ADR 0007: Use franz-go for the Kafka provider](0007-franz-go-kafka-provider.md)
+- [ADR 0008: TOML configuration and hierarchical environment overrides](0008-toml-configuration.md)
+- [ADR 0009: Optional mTLS for the internal snapshot endpoint](0009-internal-mtls.md)
+- [ADR 0010: Provider-neutral consumer catch-up boundary](0010-consumer-catch-up-boundary.md)
+- [ADR 0011: Barrier snapshot for gap-free hub startup](0011-snapshot-startup-barrier.md)
 - [Open implementation gates](open-gates.md)
 
 Persisted-schema changes require an explicit replacement ADR, offline migration

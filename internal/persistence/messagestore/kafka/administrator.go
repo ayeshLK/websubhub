@@ -29,6 +29,7 @@ import (
 
 type adminClient interface {
 	ListTopics(context.Context, ...string) (kadm.TopicDetails, error)
+	ListEndOffsets(context.Context, ...string) (kadm.ListedOffsets, error)
 	CreateTopics(context.Context, int32, int16, map[string]*string, ...string) (kadm.CreateTopicResponses, error)
 	DeleteGroup(context.Context, string) (kadm.DeleteGroupResponse, error)
 	DescribeTopicConfigs(context.Context, ...string) (kadm.ResourceConfigs, error)

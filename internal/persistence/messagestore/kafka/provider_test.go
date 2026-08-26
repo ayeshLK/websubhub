@@ -128,6 +128,9 @@ type fakeAdminClient struct {
 	createCalls int
 }
 
+func (f *fakeAdminClient) ListEndOffsets(context.Context, ...string) (kadm.ListedOffsets, error) {
+	return nil, nil
+}
 func (f *fakeAdminClient) ListTopics(context.Context, ...string) (kadm.TopicDetails, error) {
 	return f.details, nil
 }

@@ -9,16 +9,14 @@ Define the exact CloudEvents topic, publication, subscription, progress, and
 replay contract before implementing event-stream behavior. Resource-topic work
 is independent.
 
-## Configuration syntax
-
-Choose the canonical file format and environment override convention before
-implementing configuration loading. Preserve one typed hierarchical schema.
-
 ## Initial security profile
 
 Choose which inbound authentication, authorization, callback SSRF, and secret
 protection controls block the public preview and which remain explicit
 deployment controls before implementing the operational/safety slice.
+
+Hub-to-consolidator authentication is resolved by ADR 0009; the remaining gate
+covers public endpoints and callback policy.
 
 ## Docker Hub identity
 
