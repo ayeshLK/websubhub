@@ -9,14 +9,10 @@ Define the exact CloudEvents topic, publication, subscription, progress, and
 replay contract before implementing event-stream behavior. Resource-topic work
 is independent.
 
-## Initial security profile
-
-Choose which inbound authentication, authorization, callback SSRF, and secret
-protection controls block the public preview and which remain explicit
-deployment controls before implementing the operational/safety slice.
-
-Hub-to-consolidator authentication is resolved by ADR 0009; the remaining gate
-covers public endpoints and callback policy.
+The initial security profile is resolved by ADR 0016. JWT endpoint security,
+dial-time callback SSRF controls, and file-backed secret encryption block the
+public preview. Hub-to-consolidator authentication remains governed by ADR
+0009.
 
 ## Docker Hub identity
 

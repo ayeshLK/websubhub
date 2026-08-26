@@ -38,7 +38,7 @@ var allowedMarkers = []struct {
 }{
 	{"Apache-2.0", "Apache License\n                           Version 2.0"},
 	{"BSD-3-Clause", "Neither the name of"},
-	{"ISC", "Permission to use, copy, modify, and/or distribute this software"},
+	{"ISC", "ISC License"},
 	{"MIT", "Permission is hereby granted, free of charge, to any person obtaining a copy"},
 	{"BSD-2-Clause", "Redistribution and use in source and binary forms, with or without"},
 }

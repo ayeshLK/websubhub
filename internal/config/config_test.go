@@ -125,6 +125,50 @@ func TestDeliveryEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestSecurityEnvironmentOverrides(t *testing.T) {
+	cfg, err := LoadHub("", []string{
+		"WEBSUBHUB__SERVER__ID=hub-1",
+		"WEBSUBHUB__OPERATIONS__LISTEN=127.0.0.1:9191",
+		"WEBSUBHUB__SECURITY__JWT__ISSUER=https://issuer.example.test",
+		"WEBSUBHUB__SECURITY__JWT__JWKS_URL=https://issuer.example.test/keys",
+		`WEBSUBHUB__SECURITY__JWT__ALGORITHMS=["RS256","ES256"]`,
+		"WEBSUBHUB__SECURITY__CALLBACKS__ALLOWED_PORTS=[443,8443]",
+		`WEBSUBHUB__SECURITY__CALLBACKS__ALLOWED_HOSTS=["subscriber.internal"]`,
+		`WEBSUBHUB__SECURITY__CALLBACKS__ALLOWED_CIDRS=["10.20.0.0/16"]`,
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Operations.Listen != "127.0.0.1:9191" || len(cfg.Security.JWT.Algorithms) != 2 || len(cfg.Security.Callbacks.AllowedPorts) != 2 || cfg.Security.Callbacks.AllowedHosts[0] != "subscriber.internal" {
+		t.Fatalf("security config = %#v operations = %#v", cfg.Security, cfg.Operations)
+	}
+}
+
+func TestSecurityConfigurationCannotDowngradeJWTOrCallbackPolicy(t *testing.T) {
+	cfg := HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Security.JWT.Algorithms = []string{"HS256"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "asymmetric") {
+		t.Fatalf("symmetric algorithm error = %v", err)
+	}
+	cfg = HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Security.JWT.JWKSURL = "http://issuer.example.test/keys"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("insecure JWKS error = %v", err)
+	}
+	cfg = HubDefaults()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Security.Callbacks.AllowedCIDRs = []string{"not-a-cidr"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "CIDR") {
+		t.Fatalf("callback CIDR error = %v", err)
+	}
+}
+
 func TestDeliveryConfigurationRejectsAmbiguousMappings(t *testing.T) {
 	cfg := HubDefaults()
 	cfg.Server.ID = "hub-1"

@@ -19,6 +19,11 @@ representations, runs one sequential consumer per locally owned subscription,
 delivers through the pinned library with stable message IDs and HMAC support,
 and implements explicit HTTP-managed or MessageStore-managed retry, durable
 acknowledgement, stale/removal transitions, reconnect, and DLQ behavior.
+Slice 6 requires JWT/JWKS authentication and operation scopes on public and
+administrative endpoints, enforces callback destination policy at admission
+and dial time, encrypts persisted subscription secrets with a file-backed
+AES-256-GCM key, and provides separate health and protected operations
+surfaces with bounded redacted inspection and low-cardinality metrics.
 
 ## Product boundaries
 
@@ -80,6 +85,18 @@ The hub's client identity is under `consolidator.auth.mtls`; the
 consolidator's server identity and client CA are under `server.auth.mtls`.
 mTLS is recommended and verifies both peers. `none` is intended only for an
 isolated trusted network and never results from a partial TLS configuration.
+
+Public protocol and operations endpoints do not have an unauthenticated mode in
+the v0.5 preview. Configure the exact JWT issuer, audience, HTTPS JWKS URL, and
+asymmetric algorithm allowlist under `security.jwt`. Protocol operations use
+the scopes recorded in ADR 0016. Liveness and bounded readiness are the only
+unauthenticated operations endpoints.
+
+Callback delivery permits public HTTPS destinations on configured ports by
+default. Private networks and HTTP require an explicit exact-host/CIDR and port
+allowlist. Subscription HMAC secrets are encrypted before state persistence
+using the key reference under `security.secrets`; the key file contains 32 raw
+bytes or their standard base64 encoding.
 
 ## Architecture decisions
 

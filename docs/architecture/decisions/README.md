@@ -18,6 +18,7 @@ tests, configuration, and release claims.
 - [ADR 0013: State runtime configuration and ownership](0013-state-runtime-configuration.md)
 - [ADR 0014: Resource protocol adapter and preview lifecycle](0014-resource-protocol-adapter.md)
 - [ADR 0015: Exact content ingestion and delivery state machine](0015-content-ingestion-and-delivery.md)
+- [ADR 0016: v0.5 endpoint and callback security profile](0016-v0.5-security-profile.md)
 - [Open implementation gates](open-gates.md)
 
 Persisted-schema changes require an explicit replacement ADR, offline migration

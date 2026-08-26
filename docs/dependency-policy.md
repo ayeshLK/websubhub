@@ -26,8 +26,14 @@ the repository does not depend on an unpublished working tree.
 | Module | Pinned version | License | Purpose |
 |---|---|---|---|
 | `github.com/ayeshLK/lib-websubhub` | `v0.6.0` | Apache-2.0 | Bounded WebSub protocol parsing, verification, lifecycle callbacks, and one delivery attempt |
+| `github.com/lestrrat-go/jwx/v3` | `v3.1.1` | MIT | JWT validation, JOSE algorithm enforcement, and bounded JWKS parsing |
 | `github.com/twmb/franz-go` | `v1.21.6` | BSD-3-Clause | Kafka producer, consumer, protocol, TLS/SASL integration |
 | `github.com/twmb/franz-go/pkg/kadm` | `v1.18.0` | BSD-3-Clause | Kafka destination and consumer-group administration |
 
 Kafka types remain inside the Kafka provider. The provider does not expose a
 public plugin SDK or make Kafka identifiers part of product identity.
+
+The JWT verifier pins issuer, audience, asymmetric algorithms, key ID, token
+size, and claims validation in product code. JWKS retrieval uses an exact
+operator-configured HTTPS URL, a bounded response, timeout, redirect refusal,
+and a fail-closed cache; token-controlled `jku` discovery is never enabled.

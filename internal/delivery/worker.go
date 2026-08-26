@@ -445,6 +445,9 @@ type LibraryAttemptFactory struct {
 }
 
 func (f LibraryAttemptFactory) New(subscription state.Subscription, secret []byte) (Attempt, error) {
+	if f.HTTPClient == nil {
+		return nil, errors.New("policy-controlled callback HTTP client is required")
+	}
 	client, err := websubhub.NewDeliveryClient(websubhub.Subscription{Hub: f.HubURL, Mode: websubhub.ModeSubscribe, Topic: subscription.TopicURL, Callback: subscription.CallbackURL, Secret: string(secret)}, websubhub.DeliveryConfig{HTTPClient: f.HTTPClient, Timeout: f.Timeout, MaxResponseBody: f.MaxResponseBody})
 	if err != nil {
 		return nil, err

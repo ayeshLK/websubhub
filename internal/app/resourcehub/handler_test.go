@@ -66,6 +66,15 @@ type sealer struct {
 	plaintext []byte
 }
 
+type allowCallbacks struct{}
+
+func (allowCallbacks) ValidateURL(context.Context, string) error { return nil }
+
+type allowAuthorization struct{}
+
+func (allowAuthorization) Middleware(next http.Handler) http.Handler         { return next }
+func (allowAuthorization) Authorize(context.Context, string) (string, error) { return "subject-1", nil }
+
 func (s *sealer) Seal(_ context.Context, plaintext []byte) ([]byte, string, error) {
 	s.mu.Lock()
 	s.plaintext = append([]byte(nil), plaintext...)
@@ -105,7 +114,7 @@ func TestPublisherRegistrationAppendsWithoutMutatingProjection(t *testing.T) {
 	if registered.Topic.ID != topicID ||
 		registered.Topic.CanonicalURL != topic ||
 		registered.Topic.ContentDestination != string(destination) ||
-		registered.Meta.Actor.Type != "publisher" {
+		registered.Meta.Actor.Type != "publisher" || registered.Meta.Actor.ID != "subject-1" {
 		t.Fatalf("registration = %#v", registered)
 	}
 	if len(view.Snapshot().Topics) != 0 {
@@ -286,8 +295,9 @@ func newTestHandler(t *testing.T, cfg config.HubConfig, events EventAppender, vi
 	t.Helper()
 	sequence := 0
 	handler, err := New(cfg, Dependencies{
-		Events: events, Projection: view, Secrets: secrets,
-		Now: func() time.Time { return adapterTime },
+		Events: events, Projection: view, Secrets: secrets, Callbacks: allowCallbacks{}, Authorization: allowAuthorization{},
+		VerificationClient: http.DefaultClient,
+		Now:                func() time.Time { return adapterTime },
 		NewEventID: func() (string, error) {
 			sequence++
 			return "event-test-" + string(rune('0'+sequence)), nil

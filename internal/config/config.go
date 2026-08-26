@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"reflect"
@@ -52,6 +53,8 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 
 type HubConfig struct {
 	Server       HubServer          `toml:"server"`
+	Operations   OperationsServer   `toml:"operations"`
+	Security     Security           `toml:"security"`
 	Protocol     ResourceProtocol   `toml:"protocol"`
 	Consolidator ConsolidatorClient `toml:"consolidator"`
 	State        HubState           `toml:"state"`
@@ -59,10 +62,56 @@ type HubConfig struct {
 	MessageStore MessageStore       `toml:"message_store"`
 }
 
+type OperationsServer struct {
+	Listen            string   `toml:"listen"`
+	ReadHeaderTimeout Duration `toml:"read_header_timeout"`
+	ReadTimeout       Duration `toml:"read_timeout"`
+	WriteTimeout      Duration `toml:"write_timeout"`
+	IdleTimeout       Duration `toml:"idle_timeout"`
+	ShutdownTimeout   Duration `toml:"shutdown_timeout"`
+}
+
+type Security struct {
+	JWT       JWT           `toml:"jwt"`
+	Callbacks Callback      `toml:"callbacks"`
+	Secrets   SecretStorage `toml:"secrets"`
+}
+
+type JWT struct {
+	Issuer         string   `toml:"issuer"`
+	Audience       string   `toml:"audience"`
+	JWKSURL        string   `toml:"jwks_url"`
+	Algorithms     []string `toml:"algorithms"`
+	ScopeClaim     string   `toml:"scope_claim"`
+	ClockSkew      Duration `toml:"clock_skew"`
+	CacheTTL       Duration `toml:"cache_ttl"`
+	RequestTimeout Duration `toml:"request_timeout"`
+	MaxTokenBytes  int64    `toml:"max_token_bytes"`
+}
+
+type Callback struct {
+	AllowedPorts          []int    `toml:"allowed_ports"`
+	AllowedHosts          []string `toml:"allowed_hosts"`
+	AllowedCIDRs          []string `toml:"allowed_cidrs"`
+	ConnectTimeout        Duration `toml:"connect_timeout"`
+	TLSHandshakeTimeout   Duration `toml:"tls_handshake_timeout"`
+	ResponseHeaderTimeout Duration `toml:"response_header_timeout"`
+}
+
+type SecretStorage struct {
+	KeyFile string `toml:"key_file"`
+	KeyID   string `toml:"key_id"`
+}
+
 type HubServer struct {
-	ID        string `toml:"id"`
-	Listen    string `toml:"listen"`
-	PublicURL string `toml:"public_url"`
+	ID                string   `toml:"id"`
+	Listen            string   `toml:"listen"`
+	PublicURL         string   `toml:"public_url"`
+	ReadHeaderTimeout Duration `toml:"read_header_timeout"`
+	ReadTimeout       Duration `toml:"read_timeout"`
+	WriteTimeout      Duration `toml:"write_timeout"`
+	IdleTimeout       Duration `toml:"idle_timeout"`
+	ShutdownTimeout   Duration `toml:"shutdown_timeout"`
 }
 
 type ResourceProtocol struct {
@@ -158,8 +207,13 @@ type StateConsumer struct {
 }
 
 type ConsolidatorServer struct {
-	Listen string     `toml:"listen"`
-	Auth   ServerAuth `toml:"auth"`
+	Listen            string     `toml:"listen"`
+	ReadHeaderTimeout Duration   `toml:"read_header_timeout"`
+	ReadTimeout       Duration   `toml:"read_timeout"`
+	WriteTimeout      Duration   `toml:"write_timeout"`
+	IdleTimeout       Duration   `toml:"idle_timeout"`
+	ShutdownTimeout   Duration   `toml:"shutdown_timeout"`
+	Auth              ServerAuth `toml:"auth"`
 }
 
 type ServerAuth struct {
@@ -212,7 +266,22 @@ type KafkaSASL struct {
 
 func HubDefaults() HubConfig {
 	return HubConfig{
-		Server: HubServer{Listen: ":8080", PublicURL: "http://127.0.0.1:8080/websub"},
+		Server:     HubServer{Listen: ":8080", PublicURL: "http://127.0.0.1:8080/websub", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(30 * time.Second), WriteTimeout: Duration(30 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second)},
+		Operations: OperationsServer{Listen: "127.0.0.1:9090", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(15 * time.Second), WriteTimeout: Duration(15 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second)},
+		Security: Security{
+			JWT: JWT{
+				Issuer: "https://identity.example.invalid", Audience: "websubhub",
+				JWKSURL:    "https://identity.example.invalid/.well-known/jwks.json",
+				Algorithms: []string{"RS256"}, ScopeClaim: "scope",
+				ClockSkew: Duration(30 * time.Second), CacheTTL: Duration(15 * time.Minute),
+				RequestTimeout: Duration(5 * time.Second), MaxTokenBytes: 16 << 10,
+			},
+			Callbacks: Callback{
+				AllowedPorts: []int{443}, ConnectTimeout: Duration(5 * time.Second),
+				TLSHandshakeTimeout: Duration(10 * time.Second), ResponseHeaderTimeout: Duration(10 * time.Second),
+			},
+			Secrets: SecretStorage{KeyFile: "websubhub-secrets.key", KeyID: "local-v1"},
+		},
 		Protocol: ResourceProtocol{
 			DefaultLease:        Duration(10 * 24 * time.Hour),
 			MaxLease:            Duration(10 * 24 * time.Hour),
@@ -255,7 +324,7 @@ func HubDefaults() HubConfig {
 
 func ConsolidatorDefaults() ConsolidatorConfig {
 	return ConsolidatorConfig{
-		Server: ConsolidatorServer{Listen: ":8081", Auth: ServerAuth{Mode: "none"}},
+		Server: ConsolidatorServer{Listen: ":8081", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(30 * time.Second), WriteTimeout: Duration(30 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second), Auth: ServerAuth{Mode: "none"}},
 		State: ConsolidatorState{
 			Events:    StateDestination{Destination: defaultStateEventsDestination, Retention: Duration(7 * 24 * time.Hour)},
 			Snapshots: StateDestination{Destination: defaultStateSnapshotsDestination, Retention: Duration(30 * 24 * time.Hour)},
@@ -312,6 +381,18 @@ func (c HubConfig) Validate() error {
 	if c.Server.Listen == "" {
 		return errors.New("server.listen is required")
 	}
+	if c.Server.ReadHeaderTimeout <= 0 || c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.IdleTimeout <= 0 || c.Server.ShutdownTimeout <= 0 {
+		return errors.New("server HTTP timeouts must be positive")
+	}
+	if strings.TrimSpace(c.Operations.Listen) == "" {
+		return errors.New("operations.listen is required")
+	}
+	if c.Operations.ReadHeaderTimeout <= 0 || c.Operations.ReadTimeout <= 0 || c.Operations.WriteTimeout <= 0 || c.Operations.IdleTimeout <= 0 || c.Operations.ShutdownTimeout <= 0 {
+		return errors.New("operations HTTP timeouts must be positive")
+	}
+	if err := c.Security.validate(); err != nil {
+		return err
+	}
 	publicURL, err := url.Parse(c.Server.PublicURL)
 	if err != nil || publicURL.Host == "" || (publicURL.Scheme != "http" && publicURL.Scheme != "https") ||
 		publicURL.User != nil || publicURL.RawQuery != "" || publicURL.Fragment != "" {
@@ -344,6 +425,75 @@ func (c HubConfig) Validate() error {
 		return err
 	}
 	return c.MessageStore.validate()
+}
+
+func (c Security) validate() error {
+	if err := c.JWT.validate(); err != nil {
+		return err
+	}
+	if err := c.Callbacks.validate(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.Secrets.KeyFile) == "" || strings.TrimSpace(c.Secrets.KeyID) == "" {
+		return errors.New("security.secrets.key_file and key_id are required")
+	}
+	return nil
+}
+
+func (c JWT) validate() error {
+	issuer, issuerErr := url.Parse(c.Issuer)
+	jwksURL, jwksErr := url.Parse(c.JWKSURL)
+	if issuerErr != nil || issuer.Scheme != "https" || issuer.Host == "" || issuer.User != nil || issuer.RawQuery != "" || issuer.Fragment != "" {
+		return errors.New("security.jwt.issuer must be an absolute HTTPS URL without userinfo, query, or fragment")
+	}
+	if jwksErr != nil || jwksURL.Scheme != "https" || jwksURL.Host == "" || jwksURL.User != nil || jwksURL.Fragment != "" {
+		return errors.New("security.jwt.jwks_url must be an absolute HTTPS URL without userinfo or fragment")
+	}
+	if strings.TrimSpace(c.Audience) == "" || strings.TrimSpace(c.ScopeClaim) == "" {
+		return errors.New("security.jwt.audience and scope_claim are required")
+	}
+	if c.ClockSkew < 0 || c.CacheTTL <= 0 || c.RequestTimeout <= 0 || c.MaxTokenBytes < 256 {
+		return errors.New("security.jwt timing values must be valid and max_token_bytes must be at least 256")
+	}
+	if len(c.Algorithms) == 0 {
+		return errors.New("security.jwt.algorithms requires at least one asymmetric algorithm")
+	}
+	allowed := map[string]bool{"RS256": true, "RS384": true, "RS512": true, "ES256": true, "ES384": true, "ES512": true, "EdDSA": true}
+	seen := make(map[string]bool)
+	for _, algorithm := range c.Algorithms {
+		if !allowed[algorithm] {
+			return fmt.Errorf("security.jwt algorithm %q is not an allowed asymmetric algorithm", algorithm)
+		}
+		if seen[algorithm] {
+			return fmt.Errorf("security.jwt algorithm %q is duplicated", algorithm)
+		}
+		seen[algorithm] = true
+	}
+	return nil
+}
+
+func (c Callback) validate() error {
+	if len(c.AllowedPorts) == 0 || c.ConnectTimeout <= 0 || c.TLSHandshakeTimeout <= 0 || c.ResponseHeaderTimeout <= 0 {
+		return errors.New("security.callbacks requires allowed_ports and positive timeout values")
+	}
+	seen := make(map[int]bool)
+	for _, port := range c.AllowedPorts {
+		if port < 1 || port > 65535 || seen[port] {
+			return fmt.Errorf("security.callbacks contains invalid or duplicate port %d", port)
+		}
+		seen[port] = true
+	}
+	for _, value := range c.AllowedCIDRs {
+		if _, err := netip.ParsePrefix(value); err != nil {
+			return fmt.Errorf("security.callbacks.allowed_cidrs contains invalid CIDR %q", value)
+		}
+	}
+	for _, host := range c.AllowedHosts {
+		if strings.TrimSpace(host) == "" || strings.ContainsAny(host, "/:@[]") {
+			return fmt.Errorf("security.callbacks.allowed_hosts contains invalid host %q", host)
+		}
+	}
+	return nil
 }
 
 func (c Delivery) validate() error {
@@ -461,6 +611,9 @@ func (c ResourceProtocol) validate() error {
 func (c ConsolidatorConfig) Validate() error {
 	if c.Server.Listen == "" {
 		return errors.New("server.listen is required")
+	}
+	if c.Server.ReadHeaderTimeout <= 0 || c.Server.ReadTimeout <= 0 || c.Server.WriteTimeout <= 0 || c.Server.IdleTimeout <= 0 || c.Server.ShutdownTimeout <= 0 {
+		return errors.New("server HTTP timeouts must be positive")
 	}
 	if err := validateServerAuth(c.Server.Auth); err != nil {
 		return err
