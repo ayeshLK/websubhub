@@ -17,6 +17,7 @@ package httpruntime
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -37,6 +38,21 @@ func NewServer(address string, handler http.Handler, readHeaderTimeout, readTime
 		MaxHeaderBytes: 64 << 10,
 	}
 }
+
+// WithTLS adapts an HTTP server to perform its TLS handshake at the listener.
+// Certificate paths are deliberately empty because the configured certificates
+// are already loaded into TLSConfig.
+func WithTLS(server *http.Server, tlsConfig *tls.Config) (Server, error) {
+	if server == nil || tlsConfig == nil {
+		return nil, errors.New("HTTP server and TLS configuration are required")
+	}
+	server.TLSConfig = tlsConfig.Clone()
+	return tlsServer{Server: server}, nil
+}
+
+type tlsServer struct{ *http.Server }
+
+func (s tlsServer) ListenAndServe() error { return s.Server.ListenAndServeTLS("", "") }
 
 func Run(ctx context.Context, shutdownTimeout time.Duration, servers ...Server) error {
 	if ctx == nil || shutdownTimeout <= 0 || len(servers) == 0 {

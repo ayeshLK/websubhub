@@ -16,6 +16,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 )
@@ -35,18 +36,27 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-func TestRuntimeIsExplicitlyUnavailable(t *testing.T) {
+func TestRuntimeRequiresValidProcessConfiguration(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	if code := Run("websubhub", nil, &stdout, &stderr); code != 1 {
+	if code := RunContext(context.Background(), "websubhub", nil, nil, &stdout, &stderr); code != 1 {
 		t.Fatalf("Run() code = %d, want 1", code)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("Run() stdout = %q", stdout.String())
 	}
-	if got := stderr.String(); !strings.Contains(got, "not implemented") {
+	if got := stderr.String(); !strings.Contains(got, "server.id is required") {
 		t.Fatalf("Run() stderr = %q", got)
+	}
+}
+
+func TestUnknownComponentFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	if code := RunContext(context.Background(), "unknown", nil, nil, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "unknown component") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
 

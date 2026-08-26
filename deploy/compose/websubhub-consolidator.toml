@@ -1,0 +1,9 @@
+[server]
+listen = ":8081"
+
+[server.auth]
+mode = "none"
+
+[message_store.kafka]
+brokers = ["kafka:9092"]
+default_replication_factor = 1

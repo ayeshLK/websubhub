@@ -21,9 +21,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -98,7 +100,40 @@ func (a *Administrator) EnsureDestination(ctx context.Context, spec messagestore
 	if !ok {
 		return fmt.Errorf("Kafka did not return destination creation status for %s", spec.Name)
 	}
-	return response.Err
+	if response.Err == nil {
+		return nil
+	}
+	if !errors.Is(response.Err, kerr.TopicAlreadyExists) {
+		return response.Err
+	}
+	// Another node can win the create race after our initial lookup. Treat
+	// that response as idempotent only after validating the winner created the
+	// destination with the requested observable shape.
+	visibilityCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var detail kadm.TopicDetail
+	for {
+		details, err = a.admin.ListTopics(visibilityCtx, string(spec.Name))
+		if err != nil {
+			return err
+		}
+		var exists bool
+		detail, exists = details[string(spec.Name)]
+		if exists && detail.Err == nil {
+			break
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-visibilityCtx.Done():
+			timer.Stop()
+			return fmt.Errorf("Kafka destination %s was created concurrently but did not become visible: %w", spec.Name, visibilityCtx.Err())
+		case <-timer.C:
+		}
+	}
+	if len(detail.Partitions) != spec.Partitions {
+		return fmt.Errorf("Kafka destination %s has %d partitions, require %d", spec.Name, len(detail.Partitions), spec.Partitions)
+	}
+	return a.validateDestinationConfig(ctx, spec)
 }
 
 func (a *Administrator) validateDestinationConfig(ctx context.Context, spec messagestore.DestinationSpec) error {

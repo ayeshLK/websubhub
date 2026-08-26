@@ -34,6 +34,7 @@ type consumerClient interface {
 	PollRecords(context.Context, int) kgo.Fetches
 	UncommittedOffsets() map[string]map[int32]kgo.EpochOffset
 	CommittedOffsets() map[string]map[int32]kgo.EpochOffset
+	SetOffsets(map[string]map[int32]kgo.EpochOffset)
 	CommitRecords(context.Context, ...*kgo.Record) error
 	AllowRebalance()
 	Close()
@@ -61,6 +62,7 @@ type Consumer struct {
 	closed       bool
 	permanent    bool
 	assigned     map[int32]struct{}
+	established  map[int32]kgo.EpochOffset
 	assignedOnce chan struct{}
 }
 
@@ -71,7 +73,7 @@ func newConsumer(config Config, spec messagestore.ConsumerSpec, producer message
 	if spec.StartPosition != messagestore.StartEarliest && spec.StartPosition != messagestore.StartLatest {
 		return nil, fmt.Errorf("unsupported consumer start position %q", spec.StartPosition)
 	}
-	consumer := &Consumer{config: config, spec: spec, assignedOnce: make(chan struct{}), metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, producer: producer, admin: admin}
+	consumer := &Consumer{config: config, spec: spec, established: make(map[int32]kgo.EpochOffset), assignedOnce: make(chan struct{}), metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, producer: producer, admin: admin}
 	client, err := consumer.openClient()
 	if err != nil {
 		return nil, err
@@ -138,6 +140,9 @@ func (c *Consumer) Receive(ctx context.Context, max int) (messagestore.ReceiveBa
 		caughtUp = kafkaCaughtUp(fetches, c.client.UncommittedOffsets())
 		if err := c.appendFetched(fetches); err != nil {
 			return messagestore.ReceiveBatch{}, err
+		}
+		if len(c.pending) == 0 {
+			c.client.AllowRebalance()
 		}
 	}
 	end := min(c.delivered+max, len(c.pending))
@@ -223,6 +228,9 @@ func (c *Consumer) CaughtUp(ctx context.Context) (bool, error) {
 		if err := c.appendFetched(fetches); err != nil {
 			return false, err
 		}
+		if len(c.pending) == 0 {
+			c.client.AllowRebalance()
+		}
 		if c.delivered < len(c.pending) {
 			return false, nil
 		}
@@ -240,20 +248,36 @@ func (c *Consumer) CaughtUp(ctx context.Context) (bool, error) {
 	if len(assigned) == 0 {
 		return false, nil
 	}
-	committed := c.client.CommittedOffsets()
+	var committed map[string]map[int32]kgo.EpochOffset
 	for partition, end := range partitions {
 		if _, ok := assigned[partition]; !ok {
 			return false, nil
 		}
 		position, ok := positions[string(c.spec.Destination)][partition]
-		if !ok {
-			position, ok = committed[string(c.spec.Destination)][partition]
-		}
-		if !ok {
-			if end.Offset == 0 || c.spec.StartPosition == messagestore.StartLatest {
-				continue
+		if !ok || position.Offset < 0 {
+			if established, exists := c.established[partition]; exists {
+				position, ok = established, true
 			}
-			return false, nil
+		}
+		if !ok || position.Offset < 0 {
+			// A group assignment can report -1 until its reset policy has been
+			// materialized by a fetch. Make that boundary concrete here; merely
+			// treating -1 as caught up would let a StartLatest consumer skip every
+			// event that arrives after startup.
+			if end.Offset > 0 && committed == nil {
+				committed = c.client.CommittedOffsets()
+			}
+			position, ok = committed[string(c.spec.Destination)][partition]
+			if !ok || position.Offset < 0 {
+				position = kgo.EpochOffset{Offset: 0}
+				if c.spec.StartPosition == messagestore.StartLatest {
+					position.Offset = end.Offset
+				}
+			}
+			c.client.SetOffsets(map[string]map[int32]kgo.EpochOffset{
+				string(c.spec.Destination): {partition: position},
+			})
+			c.established[partition] = position
 		}
 		if position.Offset < end.Offset {
 			return false, nil
@@ -312,6 +336,7 @@ func (c *Consumer) Ack(ctx context.Context, receipt messagestore.Receipt) error 
 	if err := c.client.CommitRecords(ctx, c.pending[0].record); err != nil {
 		return err
 	}
+	c.advanceEstablished(c.pending[0].record)
 	c.pending = c.pending[1:]
 	if c.delivered > 0 {
 		c.delivered--
@@ -366,6 +391,7 @@ func (c *Consumer) DeadLetter(ctx context.Context, receipt messagestore.Receipt,
 	if err := c.client.CommitRecords(ctx, c.pending[0].record); err != nil {
 		return err
 	}
+	c.advanceEstablished(c.pending[0].record)
 	c.pending = c.pending[1:]
 	if c.delivered > 0 {
 		c.delivered--
@@ -386,10 +412,12 @@ func (c *Consumer) Reconnect(context.Context) error {
 	c.assigned = nil
 	c.assignedOnce = make(chan struct{})
 	c.assignmentMu.Unlock()
+	c.established = make(map[int32]kgo.EpochOffset)
 	if c.client != nil {
-		if len(c.pending) != 0 {
-			c.client.AllowRebalance()
-		}
+		// BlockRebalanceOnPoll requires every poll to be released, including a
+		// poll that returned no records. Otherwise Close can wait forever for a
+		// rebalance that the consumer itself is still blocking.
+		c.client.AllowRebalance()
 		c.client.Close()
 	}
 	client, err := c.openClient()
@@ -411,9 +439,9 @@ func (c *Consumer) Close(ctx context.Context, intent messagestore.ClosureIntent)
 		return nil
 	}
 	if !c.closed {
-		if len(c.pending) != 0 {
-			c.client.AllowRebalance()
-		}
+		// Release a potentially empty PollRecords result before leaving the
+		// group. franz-go cannot complete Close while that rebalance is blocked.
+		c.client.AllowRebalance()
 		c.client.Close()
 		c.closed = true
 	}
@@ -430,6 +458,13 @@ func (c *Consumer) Close(ctx context.Context, intent messagestore.ClosureIntent)
 func groupName(id messagestore.ConsumerID) string {
 	digest := sha256.Sum256([]byte(id))
 	return "websubhub-" + hex.EncodeToString(digest[:])
+}
+
+func (c *Consumer) advanceEstablished(record *kgo.Record) {
+	if c.established == nil {
+		c.established = make(map[int32]kgo.EpochOffset)
+	}
+	c.established[record.Partition] = kgo.EpochOffset{Epoch: record.LeaderEpoch, Offset: record.Offset + 1}
 }
 
 func cloneMetadata(source map[string]string) map[string]string {

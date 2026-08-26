@@ -122,16 +122,21 @@ var _ adminClient = (*fakeAdminClient)(nil)
 
 type fakeAdminClient struct {
 	deleted     int
+	ends        kadm.ListedOffsets
 	details     kadm.TopicDetails
+	afterCreate kadm.TopicDetails
 	resources   kadm.ResourceConfigs
 	created     kadm.CreateTopicResponses
 	createCalls int
 }
 
 func (f *fakeAdminClient) ListEndOffsets(context.Context, ...string) (kadm.ListedOffsets, error) {
-	return nil, nil
+	return f.ends, nil
 }
 func (f *fakeAdminClient) ListTopics(context.Context, ...string) (kadm.TopicDetails, error) {
+	if f.createCalls > 0 && f.afterCreate != nil {
+		return f.afterCreate, nil
+	}
 	return f.details, nil
 }
 func (f *fakeAdminClient) CreateTopics(context.Context, int32, int16, map[string]*string, ...string) (kadm.CreateTopicResponses, error) {

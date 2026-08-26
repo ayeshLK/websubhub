@@ -1,0 +1,51 @@
+[server]
+id = "hub-a"
+listen = ":8080"
+public_url = "http://hub-a:8080/websub"
+
+[operations]
+listen = ":9090"
+
+[security.jwt]
+issuer = "https://fixture:8443"
+audience = "websubhub"
+jwks_url = "https://fixture:8443/.well-known/jwks.json"
+algorithms = ["RS256"]
+
+[security.callbacks]
+allowed_ports = [8082]
+allowed_hosts = ["fixture"]
+
+[security.secrets]
+key_file = "/run/fixtures/subscription.key"
+key_id = "compose-v1"
+
+[protocol]
+publisher_extension_enabled = true
+default_lease = "1h"
+max_lease = "1h"
+
+[consolidator]
+endpoint = "http://consolidator:8081"
+
+[consolidator.auth]
+mode = "none"
+
+[delivery]
+reconnect_interval = "500ms"
+request_timeout = "5s"
+
+[delivery.retry]
+strategy = "message_store"
+
+[delivery.retry.message_store]
+delay = "1s"
+redeliver_status_codes = [408, 429, 500, 502, 503, 504]
+dead_letter_status_codes = [400, 404]
+fail_status_codes = [422]
+default_action = "fail"
+network_failure_action = "redeliver"
+
+[message_store.kafka]
+brokers = ["kafka:9092"]
+default_replication_factor = 1

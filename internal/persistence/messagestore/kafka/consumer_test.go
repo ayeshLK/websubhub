@@ -20,13 +20,16 @@ import (
 	"testing"
 
 	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 type fakeConsumerClient struct {
-	fetches, last  kgo.Fetches
-	commits        []*kgo.Record
-	allows, closes int
+	fetches, last                        kgo.Fetches
+	positions                            map[string]map[int32]kgo.EpochOffset
+	setOffsets                           map[string]map[int32]kgo.EpochOffset
+	commits                              []*kgo.Record
+	allows, closes, committedOffsetCalls int
 }
 
 func (f *fakeConsumerClient) PollRecords(context.Context, int) kgo.Fetches {
@@ -36,10 +39,17 @@ func (f *fakeConsumerClient) PollRecords(context.Context, int) kgo.Fetches {
 	return result
 }
 func (f *fakeConsumerClient) CommittedOffsets() map[string]map[int32]kgo.EpochOffset {
+	f.committedOffsetCalls++
 	return nil
 }
 func (f *fakeConsumerClient) UncommittedOffsets() map[string]map[int32]kgo.EpochOffset {
+	if f.positions != nil {
+		return f.positions
+	}
 	return fetchPositions(f.last)
+}
+func (f *fakeConsumerClient) SetOffsets(offsets map[string]map[int32]kgo.EpochOffset) {
+	f.setOffsets = offsets
 }
 func (f *fakeConsumerClient) CommitRecords(_ context.Context, records ...*kgo.Record) error {
 	f.commits = append(f.commits, records...)
@@ -138,8 +148,8 @@ func TestConsumerClosureIntent(t *testing.T) {
 	if err := consumer.Close(t.Context(), messagestore.CloseTemporary); err != nil {
 		t.Fatal(err)
 	}
-	if admin.deleted != 0 || client.closes != 1 {
-		t.Fatalf("temporary close deleted=%d closes=%d", admin.deleted, client.closes)
+	if admin.deleted != 0 || client.closes != 1 || client.allows != 1 {
+		t.Fatalf("temporary close deleted=%d closes=%d allows=%d", admin.deleted, client.closes, client.allows)
 	}
 	if err := consumer.Close(t.Context(), messagestore.ClosePermanent); err != nil {
 		t.Fatal(err)
@@ -149,6 +159,78 @@ func TestConsumerClosureIntent(t *testing.T) {
 	}
 	if admin.deleted != 1 {
 		t.Fatalf("permanent deletes = %d", admin.deleted)
+	}
+}
+
+func TestEmptyReceiveReleasesBlockedRebalance(t *testing.T) {
+	client := &fakeConsumerClient{fetches: fetches()}
+	consumer := testConsumer(client, new(fakeMessageProducer), new(fakeAdminClient))
+	batch, err := consumer.Receive(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Messages) != 0 || client.allows != 1 {
+		t.Fatalf("batch=%#v allows=%d", batch, client.allows)
+	}
+}
+
+func TestCommittedRecordRetainsCaughtUpBoundary(t *testing.T) {
+	record := storedRecord(t, "message-1", 4)
+	client := &fakeConsumerClient{fetches: fetches(record)}
+	administrator := &fakeAdminClient{ends: kadm.ListedOffsets{"events": {0: {Topic: "events", Partition: 0, Offset: 5}}}}
+	consumer := testConsumer(client, new(fakeMessageProducer), administrator)
+	consumer.assigned = map[int32]struct{}{0: {}}
+	batch, err := consumer.Receive(t.Context(), 1)
+	if err != nil || len(batch.Messages) != 1 {
+		t.Fatalf("receive=%#v err=%v", batch, err)
+	}
+	if err := consumer.Ack(t.Context(), batch.Messages[0].Receipt); err != nil {
+		t.Fatal(err)
+	}
+	client.positions = map[string]map[int32]kgo.EpochOffset{}
+	caughtUp, err := consumer.CaughtUp(t.Context())
+	if err != nil || !caughtUp {
+		t.Fatalf("caughtUp=%v err=%v established=%#v", caughtUp, err, consumer.established)
+	}
+}
+
+func TestEmptyAssignedDestinationIsCaughtUpWithoutCommittedOffsetLookup(t *testing.T) {
+	client := &fakeConsumerClient{positions: map[string]map[int32]kgo.EpochOffset{"events": {0: {Offset: -1}}}}
+	administrator := &fakeAdminClient{ends: kadm.ListedOffsets{"events": {0: {Topic: "events", Partition: 0, Offset: 0}}}}
+	consumer := testConsumer(client, new(fakeMessageProducer), administrator)
+	consumer.assigned = map[int32]struct{}{0: {}}
+	caughtUp, err := consumer.CaughtUp(t.Context())
+	if err != nil || !caughtUp {
+		t.Fatalf("caughtUp=%v err=%v", caughtUp, err)
+	}
+	if client.committedOffsetCalls != 0 {
+		t.Fatalf("committed offset lookups=%d", client.committedOffsetCalls)
+	}
+	if client.setOffsets["events"][0].Offset != 0 {
+		t.Fatalf("established offsets=%#v", client.setOffsets)
+	}
+}
+
+func TestStartLatestEstablishesConcreteEndOffset(t *testing.T) {
+	client := &fakeConsumerClient{positions: map[string]map[int32]kgo.EpochOffset{"events": {0: {Offset: -1}}}}
+	administrator := &fakeAdminClient{ends: kadm.ListedOffsets{"events": {0: {Topic: "events", Partition: 0, Offset: 7}}}}
+	consumer := testConsumer(client, new(fakeMessageProducer), administrator)
+	consumer.spec.StartPosition = messagestore.StartLatest
+	consumer.assigned = map[int32]struct{}{0: {}}
+	caughtUp, err := consumer.CaughtUp(t.Context())
+	if err != nil || !caughtUp {
+		t.Fatalf("caughtUp=%v err=%v", caughtUp, err)
+	}
+	if client.setOffsets["events"][0].Offset != 7 {
+		t.Fatalf("established offsets=%#v", client.setOffsets)
+	}
+	administrator.ends["events"][0] = kadm.ListedOffset{Topic: "events", Partition: 0, Offset: 8}
+	caughtUp, err = consumer.CaughtUp(t.Context())
+	if err != nil || caughtUp {
+		t.Fatalf("advanced caughtUp=%v err=%v", caughtUp, err)
+	}
+	if client.setOffsets["events"][0].Offset != 7 {
+		t.Fatalf("moving reset boundary=%#v", client.setOffsets)
 	}
 }
 
@@ -178,7 +260,7 @@ func fetchPositions(fetches kgo.Fetches) map[string]map[int32]kgo.EpochOffset {
 
 func testConsumer(client consumerClient, producer messagestore.Producer, admin adminClient) *Consumer {
 	spec := messagestore.ConsumerSpec{ID: "consumer-1", Destination: "events", StartPosition: messagestore.StartEarliest}
-	return &Consumer{spec: spec, metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, client: client, producer: producer, admin: admin}
+	return &Consumer{spec: spec, metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, client: client, producer: producer, admin: admin, established: make(map[int32]kgo.EpochOffset)}
 }
 
 func storedRecord(t *testing.T, id string, offset int64) *kgo.Record {

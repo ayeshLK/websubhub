@@ -7,7 +7,7 @@ LDFLAGS = -s -w \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.commit=$(COMMIT) \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.date=$(BUILD_DATE)
 
-.PHONY: build check docs-check format-check source-header-check generate-check license-check test
+.PHONY: build check compose-smoke docs-check format-check source-header-check generate-check license-check test
 
 build:
 	mkdir -p bin
@@ -39,3 +39,6 @@ docs-check:
 
 test:
 	$(GO) test -shuffle=on ./...
+
+compose-smoke:
+	sh deploy/compose/smoke.sh

@@ -24,6 +24,10 @@ administrative endpoints, enforces callback destination policy at admission
 and dial time, encrypts persisted subscription secrets with a file-backed
 AES-256-GCM key, and provides separate health and protected operations
 surfaces with bounded redacted inspection and low-cardinality metrics.
+Slice 7 composes the two process-specific configurations into runnable hub and
+consolidator binaries, adds a two-hub preview topology, and validates durable
+state recovery and delivery ownership against the pinned `apache/kafka:4.1.0`
+image.
 
 ## Product boundaries
 
@@ -63,6 +67,20 @@ WEBSUBHUB_TEST_KAFKA_BROKERS=127.0.0.1:9092 \
   go test -v -run '^TestKafkaConformance$' \
   ./internal/persistence/messagestore/kafka
 ```
+
+The full preview smoke test builds local static binaries, generates ephemeral
+two-day test certificates, starts Kafka 4.1.0, the consolidator, two hubs, and a
+controlled JWT/subscriber fixture, then removes the test containers and volume:
+
+```sh
+make compose-smoke
+```
+
+It covers JWT enforcement, resource registration, verified subscriptions,
+single-owner signed delivery, MessageStore redelivery, DLQ/stale/removal
+outcomes, cross-hub projection consistency, and continued delivery after the
+owning hub restarts. Generated credentials remain ignored under
+`deploy/compose/.generated/` and are for local acceptance only.
 
 ## Configuration
 

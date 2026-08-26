@@ -112,6 +112,9 @@ func (s *Service) consume(ctx context.Context, max int) (bool, error) {
 	}
 	caughtUp, err := consumer.CaughtUp(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		s.fail()
 		return false, fmt.Errorf("check state replay boundary: %w", err)
 	}
@@ -123,6 +126,9 @@ func (s *Service) consume(ctx context.Context, max int) (bool, error) {
 	}
 	batch, err := consumer.Receive(ctx, max)
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		s.fail()
 		return false, fmt.Errorf("receive state events: %w", err)
 	}

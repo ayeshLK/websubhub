@@ -16,6 +16,7 @@ package httpruntime
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"sync"
@@ -43,6 +44,20 @@ func TestNewServerAppliesEveryBound(t *testing.T) {
 	server := NewServer(":8080", http.NotFoundHandler(), time.Second, 2*time.Second, 3*time.Second, 4*time.Second)
 	if server.Addr != ":8080" || server.ReadHeaderTimeout != time.Second || server.ReadTimeout != 2*time.Second || server.WriteTimeout != 3*time.Second || server.IdleTimeout != 4*time.Second || server.MaxHeaderBytes != 64<<10 {
 		t.Fatalf("server = %#v", server)
+	}
+}
+
+func TestWithTLSRequiresCompleteInputs(t *testing.T) {
+	if _, err := WithTLS(nil, &tls.Config{}); err == nil {
+		t.Fatal("nil HTTP server accepted")
+	}
+	server := NewServer(":0", http.NotFoundHandler(), time.Second, time.Second, time.Second, time.Second)
+	wrapped, err := WithTLS(server, &tls.Config{MinVersion: tls.VersionTLS13})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrapped == nil || server.TLSConfig == nil || server.TLSConfig.MinVersion != tls.VersionTLS13 {
+		t.Fatal("TLS configuration was not applied")
 	}
 }
 

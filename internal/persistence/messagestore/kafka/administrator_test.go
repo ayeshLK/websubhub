@@ -21,6 +21,7 @@ import (
 
 	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 )
 
 func TestAdministratorValidatesExistingDestination(t *testing.T) {
@@ -47,5 +48,20 @@ func TestAdministratorCreatesMissingDestination(t *testing.T) {
 	}
 	if fake.createCalls != 1 {
 		t.Fatalf("create calls = %d", fake.createCalls)
+	}
+}
+
+func TestAdministratorAcceptsValidatedConcurrentCreation(t *testing.T) {
+	t.Parallel()
+	cleanup := "delete"
+	fake := &fakeAdminClient{
+		details:     kadm.TopicDetails{},
+		created:     kadm.CreateTopicResponses{"content": {Topic: "content", Err: kerr.TopicAlreadyExists}},
+		afterCreate: kadm.TopicDetails{"content": {Topic: "content", Partitions: kadm.PartitionDetails{0: {Partition: 0}}}},
+		resources:   kadm.ResourceConfigs{{Name: "content", Configs: []kadm.Config{{Key: "cleanup.policy", Value: &cleanup}}}},
+	}
+	administrator := &Administrator{config: Config{DefaultReplicationFactor: 1}, admin: fake}
+	if err := administrator.EnsureDestination(t.Context(), messagestore.DestinationSpec{Name: "content", Partitions: 1}); err != nil {
+		t.Fatal(err)
 	}
 }

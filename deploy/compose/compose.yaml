@@ -1,0 +1,120 @@
+name: websubhub-preview
+
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: deploy/compose/Dockerfile
+  image: websubhub-preview:local
+  init: true
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp
+
+services:
+  kafka:
+    image: apache/kafka:4.1.0
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 20s
+      retries: 30
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  fixture:
+    <<: *app
+    command: ["websubhub-fixture"]
+    environment:
+      FIXTURE_TLS_CERT: /run/fixtures/fixture.crt
+      FIXTURE_TLS_KEY: /run/fixtures/fixture.key
+      FIXTURE_JWT_KEY: /run/fixtures/jwt.key
+    volumes:
+      - ./.generated:/run/fixtures:ro
+    ports:
+      - "8443:8443"
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8082/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  consolidator:
+    <<: *app
+    command: ["websubhub-consolidator", "--config", "/etc/websubhub/config.toml"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./websubhub-consolidator.toml:/etc/websubhub/config.toml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8081/health/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  hub-a:
+    <<: *app
+    command: ["websubhub", "--config", "/etc/websubhub/config.toml"]
+    environment:
+      SSL_CERT_FILE: /run/fixtures/ca.crt
+      WEBSUBHUB__MESSAGE_STORE__KAFKA__CLIENT_ID: websubhub-hub-a
+    depends_on:
+      consolidator:
+        condition: service_healthy
+      fixture:
+        condition: service_healthy
+    volumes:
+      - ./websubhub.toml:/etc/websubhub/config.toml:ro
+      - ./.generated:/run/fixtures:ro
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/health/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  hub-b:
+    <<: *app
+    command: ["websubhub", "--config", "/etc/websubhub/config.toml"]
+    environment:
+      SSL_CERT_FILE: /run/fixtures/ca.crt
+      WEBSUBHUB__SERVER__ID: hub-b
+      WEBSUBHUB__SERVER__PUBLIC_URL: http://hub-b:8080/websub
+      WEBSUBHUB__MESSAGE_STORE__KAFKA__CLIENT_ID: websubhub-hub-b
+    depends_on:
+      hub-a:
+        condition: service_healthy
+    volumes:
+      - ./websubhub.toml:/etc/websubhub/config.toml:ro
+      - ./.generated:/run/fixtures:ro
+    ports:
+      - "8083:8080"
+      - "9091:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/health/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  kafka-data:
