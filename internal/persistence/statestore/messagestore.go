@@ -32,30 +32,56 @@ const (
 )
 
 type MessageStore struct {
-	producer          messagestore.Producer
-	administrator     messagestore.Administrator
-	stateRetention    time.Duration
-	snapshotRetention time.Duration
+	producer      messagestore.Producer
+	administrator messagestore.Administrator
+	options       Options
 }
 
-func New(producer messagestore.Producer, administrator messagestore.Administrator, stateRetention, snapshotRetention time.Duration) (*MessageStore, error) {
+type Options struct {
+	EventsDestination    messagestore.Destination
+	SnapshotsDestination messagestore.Destination
+	EventsRetention      time.Duration
+	SnapshotsRetention   time.Duration
+	SnapshotLoadBatch    int
+}
+
+func DefaultOptions() Options {
+	return Options{
+		EventsDestination:    persistence.StateEventsDestination,
+		SnapshotsDestination: persistence.StateSnapshotsDestination,
+		EventsRetention:      7 * 24 * time.Hour,
+		SnapshotsRetention:   30 * 24 * time.Hour,
+		SnapshotLoadBatch:    100,
+	}
+}
+
+func New(producer messagestore.Producer, administrator messagestore.Administrator, options Options) (*MessageStore, error) {
 	if producer == nil || administrator == nil {
 		return nil, errors.New("producer and administrator are required")
 	}
-	if stateRetention <= 0 || snapshotRetention <= 0 {
-		return nil, errors.New("state and snapshot retention must be positive")
+	if options.EventsDestination == "" || options.SnapshotsDestination == "" {
+		return nil, errors.New("state event and snapshot destinations are required")
 	}
-	return &MessageStore{producer: producer, administrator: administrator, stateRetention: stateRetention, snapshotRetention: snapshotRetention}, nil
+	if options.EventsDestination == options.SnapshotsDestination {
+		return nil, errors.New("state event and snapshot destinations must be different")
+	}
+	if options.EventsRetention <= 0 || options.SnapshotsRetention <= 0 {
+		return nil, errors.New("state event and snapshot retention must be positive")
+	}
+	if options.SnapshotLoadBatch < 1 {
+		return nil, errors.New("snapshot load batch must be positive")
+	}
+	return &MessageStore{producer: producer, administrator: administrator, options: options}, nil
 }
 
 func (s *MessageStore) Initialize(ctx context.Context) error {
 	if err := s.administrator.EnsureDestination(ctx, messagestore.DestinationSpec{
-		Name: persistence.StateEventsDestination, Retention: s.stateRetention, Partitions: 1,
+		Name: s.options.EventsDestination, Retention: s.options.EventsRetention, Partitions: 1,
 	}); err != nil {
 		return fmt.Errorf("ensure state events destination: %w", err)
 	}
 	if err := s.administrator.EnsureDestination(ctx, messagestore.DestinationSpec{
-		Name: persistence.StateSnapshotsDestination, Compacted: true, Retention: s.snapshotRetention, Partitions: 1,
+		Name: s.options.SnapshotsDestination, Compacted: true, Retention: s.options.SnapshotsRetention, Partitions: 1,
 	}); err != nil {
 		return fmt.Errorf("ensure state snapshots destination: %w", err)
 	}
@@ -67,14 +93,14 @@ func (s *MessageStore) Append(ctx context.Context, event state.Event) error {
 	if err != nil {
 		return err
 	}
-	return s.producer.Send(ctx, persistence.StateEventsDestination, messagestore.Message{
+	return s.producer.Send(ctx, s.options.EventsDestination, messagestore.Message{
 		ID: event.Metadata().EventID, Body: body, ContentType: EventContentType,
 	})
 }
 
 func (s *MessageStore) OpenEvents(ctx context.Context, id messagestore.ConsumerID, start messagestore.StartPosition) (EventConsumer, error) {
 	consumer, err := s.administrator.OpenConsumer(ctx, messagestore.ConsumerSpec{
-		ID: id, Destination: persistence.StateEventsDestination, StartPosition: start,
+		ID: id, Destination: s.options.EventsDestination, StartPosition: start,
 	})
 	if err != nil {
 		return nil, err
@@ -87,14 +113,14 @@ func (s *MessageStore) SaveSnapshot(ctx context.Context, snapshot state.Snapshot
 	if err != nil {
 		return err
 	}
-	return s.producer.Send(ctx, persistence.StateSnapshotsDestination, messagestore.Message{
+	return s.producer.Send(ctx, s.options.SnapshotsDestination, messagestore.Message{
 		ID: fmt.Sprintf("snapshot-%020d", snapshot.Revision), Body: body, ContentType: SnapshotContentType,
 	})
 }
 
 func (s *MessageStore) LoadSnapshot(ctx context.Context) (result state.Snapshot, resultErr error) {
 	consumer, err := s.administrator.OpenConsumer(ctx, messagestore.ConsumerSpec{
-		ID: snapshotConsumerID, Destination: persistence.StateSnapshotsDestination, StartPosition: messagestore.StartEarliest,
+		ID: snapshotConsumerID, Destination: s.options.SnapshotsDestination, StartPosition: messagestore.StartEarliest,
 	})
 	if err != nil {
 		return state.Snapshot{}, err
@@ -116,7 +142,7 @@ func (s *MessageStore) LoadSnapshot(ctx context.Context) (result state.Snapshot,
 		if caughtUp {
 			return result, nil
 		}
-		batch, err := consumer.Receive(ctx, 100)
+		batch, err := consumer.Receive(ctx, s.options.SnapshotLoadBatch)
 		if err != nil {
 			return state.Snapshot{}, fmt.Errorf("receive snapshots: %w", err)
 		}

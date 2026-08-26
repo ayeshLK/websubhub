@@ -90,9 +90,58 @@ func TestLoadSnapshotRejectsMalformedRecord(t *testing.T) {
 	}
 }
 
+func TestConfiguredDestinationsAreUsed(t *testing.T) {
+	backing := messagestoretest.New(messagestore.Capabilities{})
+	options := DefaultOptions()
+	options.EventsDestination = "custom-state-events"
+	options.SnapshotsDestination = "custom-state-snapshots"
+	options.SnapshotLoadBatch = 1
+	store, err := New(backing.Producer(), backing.Administrator(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Initialize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	event := topicEvent("event-1", "topic-1")
+	if err := store.Append(t.Context(), event); err != nil {
+		t.Fatal(err)
+	}
+	consumer, err := store.OpenEvents(t.Context(), "custom-reader", messagestore.StartEarliest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata := consumer.(*eventConsumer).consumer.Metadata(); metadata.Destination != options.EventsDestination {
+		t.Fatalf("event destination = %q", metadata.Destination)
+	}
+	if err := store.SaveSnapshot(t.Context(), snapshotAt(t, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot, err := store.LoadSnapshot(t.Context()); err != nil || snapshot.Revision != 1 {
+		t.Fatalf("snapshot = %#v, %v", snapshot, err)
+	}
+}
+
+func TestOptionsRejectInvalidTopology(t *testing.T) {
+	backing := messagestoretest.New(messagestore.Capabilities{})
+	options := DefaultOptions()
+	options.SnapshotsDestination = options.EventsDestination
+	if _, err := New(backing.Producer(), backing.Administrator(), options); err == nil {
+		t.Fatal("identical state destinations accepted")
+	}
+	options = DefaultOptions()
+	options.SnapshotLoadBatch = 0
+	if _, err := New(backing.Producer(), backing.Administrator(), options); err == nil {
+		t.Fatal("zero snapshot load batch accepted")
+	}
+}
+
 func newTestStore(t *testing.T, backing *messagestoretest.Store) *MessageStore {
 	t.Helper()
-	store, err := New(backing.Producer(), backing.Administrator(), time.Hour, time.Hour)
+	options := DefaultOptions()
+	options.EventsRetention = time.Hour
+	options.SnapshotsRetention = time.Hour
+	store, err := New(backing.Producer(), backing.Administrator(), options)
 	if err != nil {
 		t.Fatal(err)
 	}

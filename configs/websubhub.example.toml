@@ -16,6 +16,15 @@ private_key_file = "/run/secrets/hub.key"
 server_ca_file = "/run/secrets/internal-server-ca.crt"
 server_name = "consolidator.internal"
 
+[state.events]
+# Must match state.events.destination in websubhub-consolidator.toml.
+destination = "websub-events"
+consumer_batch_size = 100
+
+[state.startup]
+# Startup fails without acknowledging a partial buffer when this bound is exceeded.
+buffer_max = 1000
+
 [message_store]
 provider = "kafka"
 

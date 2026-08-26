@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadHubTOMLAndEnvironmentOverrides(t *testing.T) {
@@ -42,11 +43,18 @@ provider = "kafka"
 [message_store.kafka]
 brokers = ["kafka:9092"]
 `)
-	cfg, err := LoadHub(path, []string{"WEBSUBHUB__SERVER__ID=environment-id"})
+	cfg, err := LoadHub(path, []string{
+		"WEBSUBHUB__SERVER__ID=environment-id",
+		"WEBSUBHUB__STATE__EVENTS__DESTINATION=environment-state-events",
+		"WEBSUBHUB__STATE__STARTUP__BUFFER_MAX=2048",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.ID != "environment-id" || cfg.MessageStore.Kafka.Brokers[0] != "kafka:9092" {
+	if cfg.Server.ID != "environment-id" ||
+		cfg.State.Events.Destination != "environment-state-events" ||
+		cfg.State.Startup.BufferMax != 2048 ||
+		cfg.MessageStore.Kafka.Brokers[0] != "kafka:9092" {
 		t.Fatalf("config = %#v", cfg)
 	}
 }
@@ -55,11 +63,18 @@ func TestLoadConsolidatorEnvironmentOverrides(t *testing.T) {
 	path := writeConfig(t, "websubhub-consolidator.toml", `[message_store.kafka]
 brokers = ["kafka:9092"]
 `)
-	loaded, err := LoadConsolidator(path, []string{"WEBSUBHUB__SERVER__LISTEN=:9081"})
+	loaded, err := LoadConsolidator(path, []string{
+		"WEBSUBHUB__SERVER__LISTEN=:9081",
+		"WEBSUBHUB__STATE__EVENTS__RETENTION=168h",
+		"WEBSUBHUB__STATE__CONSUMER__BATCH_SIZE=25",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Server.Listen != ":9081" || loaded.MessageStore.Kafka.ClientID != "websubhub-consolidator" {
+	if loaded.Server.Listen != ":9081" ||
+		loaded.State.Events.Retention.Value() != 7*24*time.Hour ||
+		loaded.State.Consumer.BatchSize != 25 ||
+		loaded.MessageStore.Kafka.ClientID != "websubhub-consolidator" {
 		t.Fatalf("config = %#v", loaded)
 	}
 }
@@ -101,6 +116,19 @@ brokers = ["kafka:9092"]
 		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
 	}); err == nil {
 		t.Fatal("consolidator accepted hub-only environment override")
+	}
+	if _, err := LoadHub("", []string{
+		"WEBSUBHUB__SERVER__ID=hub-1",
+		"WEBSUBHUB__STATE__SNAPSHOTS__DESTINATION=invalid",
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	}); err == nil {
+		t.Fatal("hub accepted consolidator-only state override")
+	}
+	if _, err := LoadConsolidator("", []string{
+		"WEBSUBHUB__STATE__STARTUP__BUFFER_MAX=10",
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	}); err == nil {
+		t.Fatal("consolidator accepted hub-only startup override")
 	}
 }
 
@@ -164,6 +192,36 @@ func TestKafkaSecurityConfigurationIsStrict(t *testing.T) {
 	cfg.MessageStore.Kafka.SASL.Mechanism = "plain"
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("SASL without secret file accepted")
+	}
+}
+
+func TestStateConfigurationValidation(t *testing.T) {
+	hub := HubDefaults()
+	hub.Server.ID = "hub-1"
+	hub.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	hub.State.Startup.BufferMax = 0
+	if err := hub.Validate(); err == nil || !strings.Contains(err.Error(), "buffer_max") {
+		t.Fatalf("hub startup buffer error = %v", err)
+	}
+	hub = HubDefaults()
+	hub.Server.ID = "hub-1"
+	hub.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	hub.State.Events.ConsumerBatchSize = 0
+	if err := hub.Validate(); err == nil || !strings.Contains(err.Error(), "consumer_batch_size") {
+		t.Fatalf("hub consumer batch error = %v", err)
+	}
+
+	consolidator := ConsolidatorDefaults()
+	consolidator.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	consolidator.State.Snapshots.Destination = consolidator.State.Events.Destination
+	if err := consolidator.Validate(); err == nil || !strings.Contains(err.Error(), "must be different") {
+		t.Fatalf("consolidator destination error = %v", err)
+	}
+	consolidator = ConsolidatorDefaults()
+	consolidator.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	consolidator.State.Events.Retention = 0
+	if err := consolidator.Validate(); err == nil || !strings.Contains(err.Error(), "retention") {
+		t.Fatalf("consolidator retention error = %v", err)
 	}
 }
 

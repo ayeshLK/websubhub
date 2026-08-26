@@ -125,7 +125,10 @@ func (s *openHookStore) OpenEvents(ctx context.Context, id messagestore.Consumer
 
 func testStore(t *testing.T, backing *messagestoretest.Store) *statestore.MessageStore {
 	t.Helper()
-	store, err := statestore.New(backing.Producer(), backing.Administrator(), time.Hour, time.Hour)
+	options := statestore.DefaultOptions()
+	options.EventsRetention = time.Hour
+	options.SnapshotsRetention = time.Hour
+	store, err := statestore.New(backing.Producer(), backing.Administrator(), options)
 	if err != nil {
 		t.Fatal(err)
 	}

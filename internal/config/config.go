@@ -32,6 +32,11 @@ import (
 
 const EnvPrefix = "WEBSUBHUB__"
 
+const (
+	defaultStateEventsDestination    = "websub-events"
+	defaultStateSnapshotsDestination = "websub-events-snapshots"
+)
+
 type Duration time.Duration
 
 func (d *Duration) UnmarshalText(text []byte) error {
@@ -48,6 +53,7 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 type HubConfig struct {
 	Server       HubServer          `toml:"server"`
 	Consolidator ConsolidatorClient `toml:"consolidator"`
+	State        HubState           `toml:"state"`
 	MessageStore MessageStore       `toml:"message_store"`
 }
 
@@ -69,7 +75,37 @@ type ClientAuth struct {
 
 type ConsolidatorConfig struct {
 	Server       ConsolidatorServer `toml:"server"`
+	State        ConsolidatorState  `toml:"state"`
 	MessageStore MessageStore       `toml:"message_store"`
+}
+
+type HubState struct {
+	Events  HubStateEvents  `toml:"events"`
+	Startup HubStateStartup `toml:"startup"`
+}
+
+type HubStateEvents struct {
+	Destination       string `toml:"destination"`
+	ConsumerBatchSize int    `toml:"consumer_batch_size"`
+}
+
+type HubStateStartup struct {
+	BufferMax int `toml:"buffer_max"`
+}
+
+type ConsolidatorState struct {
+	Events    StateDestination `toml:"events"`
+	Snapshots StateDestination `toml:"snapshots"`
+	Consumer  StateConsumer    `toml:"consumer"`
+}
+
+type StateDestination struct {
+	Destination string   `toml:"destination"`
+	Retention   Duration `toml:"retention"`
+}
+
+type StateConsumer struct {
+	BatchSize int `toml:"batch_size"`
 }
 
 type ConsolidatorServer struct {
@@ -129,13 +165,22 @@ func HubDefaults() HubConfig {
 	return HubConfig{
 		Server:       HubServer{Listen: ":8080"},
 		Consolidator: ConsolidatorClient{Endpoint: "http://127.0.0.1:8081", Timeout: Duration(10 * time.Second), Auth: ClientAuth{Mode: "none"}},
+		State: HubState{
+			Events:  HubStateEvents{Destination: defaultStateEventsDestination, ConsumerBatchSize: 100},
+			Startup: HubStateStartup{BufferMax: 1000},
+		},
 		MessageStore: messageStoreDefaults("websubhub"),
 	}
 }
 
 func ConsolidatorDefaults() ConsolidatorConfig {
 	return ConsolidatorConfig{
-		Server:       ConsolidatorServer{Listen: ":8081", Auth: ServerAuth{Mode: "none"}},
+		Server: ConsolidatorServer{Listen: ":8081", Auth: ServerAuth{Mode: "none"}},
+		State: ConsolidatorState{
+			Events:    StateDestination{Destination: defaultStateEventsDestination, Retention: Duration(7 * 24 * time.Hour)},
+			Snapshots: StateDestination{Destination: defaultStateSnapshotsDestination, Retention: Duration(30 * 24 * time.Hour)},
+			Consumer:  StateConsumer{BatchSize: 100},
+		},
 		MessageStore: messageStoreDefaults("websubhub-consolidator"),
 	}
 }
@@ -204,6 +249,9 @@ func (c HubConfig) Validate() error {
 	if endpoint.Scheme != expectedScheme {
 		return fmt.Errorf("consolidator.endpoint must use %s when consolidator.auth.mode = %q", expectedScheme, c.Consolidator.Auth.Mode)
 	}
+	if err := c.State.validate(); err != nil {
+		return err
+	}
 	return c.MessageStore.validate()
 }
 
@@ -214,7 +262,45 @@ func (c ConsolidatorConfig) Validate() error {
 	if err := validateServerAuth(c.Server.Auth); err != nil {
 		return err
 	}
+	if err := c.State.validate(); err != nil {
+		return err
+	}
 	return c.MessageStore.validate()
+}
+
+func (c HubState) validate() error {
+	if strings.TrimSpace(c.Events.Destination) == "" {
+		return errors.New("state.events.destination is required")
+	}
+	if c.Events.ConsumerBatchSize < 1 {
+		return errors.New("state.events.consumer_batch_size must be positive")
+	}
+	if c.Startup.BufferMax < 1 {
+		return errors.New("state.startup.buffer_max must be positive")
+	}
+	return nil
+}
+
+func (c ConsolidatorState) validate() error {
+	if strings.TrimSpace(c.Events.Destination) == "" {
+		return errors.New("state.events.destination is required")
+	}
+	if strings.TrimSpace(c.Snapshots.Destination) == "" {
+		return errors.New("state.snapshots.destination is required")
+	}
+	if c.Events.Destination == c.Snapshots.Destination {
+		return errors.New("state event and snapshot destinations must be different")
+	}
+	if c.Events.Retention <= 0 {
+		return errors.New("state.events.retention must be positive")
+	}
+	if c.Snapshots.Retention <= 0 {
+		return errors.New("state.snapshots.retention must be positive")
+	}
+	if c.Consumer.BatchSize < 1 {
+		return errors.New("state.consumer.batch_size must be positive")
+	}
+	return nil
 }
 
 func validateClientAuth(auth ClientAuth) error {

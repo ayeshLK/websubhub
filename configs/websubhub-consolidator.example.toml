@@ -10,6 +10,18 @@ certificate_file = "/run/secrets/consolidator.crt"
 private_key_file = "/run/secrets/consolidator.key"
 client_ca_file = "/run/secrets/internal-client-ca.crt"
 
+[state.events]
+# Must match state.events.destination in websubhub.toml.
+destination = "websub-events"
+retention = "168h"
+
+[state.snapshots]
+destination = "websub-events-snapshots"
+retention = "720h"
+
+[state.consumer]
+batch_size = 100
+
 [message_store]
 provider = "kafka"
 
