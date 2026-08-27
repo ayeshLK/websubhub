@@ -112,11 +112,21 @@ fencing are deferred.
 - OpenSSL
 - GNU Make (optional, but used by the commands below)
 
-Clone the repository and run the complete preview smoke test:
+Clone the repository:
 
 ```sh
 git clone https://github.com/ayeshLK/websubhub.git
 cd websubhub
+```
+
+To start the topology and keep it running while you register a topic, verify a
+subscription, publish content, inspect delivery, and query operations, follow
+the [interactive Docker Compose quickstart](docs/compose-quickstart.md).
+
+To run the same topology as an automated acceptance test that cleans up after
+itself:
+
+```sh
 make compose-smoke
 ```
 
