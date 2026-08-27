@@ -72,7 +72,7 @@ The current implementation provides:
 - sequential per-subscription delivery with stable message IDs and WebSub HMAC
   signatures;
 - HTTP-managed or MessageStore-managed retry, stale state, HTTP `410 Gone`
-  removal, and safe DLQ inspection;
+  removal, and durable dead-letter handling;
 - stable hub ownership so two hubs project all state while only the recorded
   owner delivers a subscription;
 - JWT/JWKS authentication and scope authorization for public mutations and
@@ -81,8 +81,8 @@ The current implementation provides:
   refusal, and bounded HTTP behavior;
 - AES-256-GCM encryption of persisted subscription secrets;
 - optional mTLS for hub-to-consolidator communication;
-- liveness, readiness, capabilities, subscription inspection, DLQ inspection,
-  and low-cardinality Prometheus text metrics;
+- liveness, readiness, capabilities, consolidator-authoritative topic and
+  subscription inspection, and low-cardinality Prometheus text metrics;
 - a repeatable two-hub acceptance topology using
   `apache/kafka:4.1.0`.
 
@@ -241,9 +241,20 @@ on the separate `operations.listen` listener:
 | `GET /health/live` | None | Process liveness |
 | `GET /health/ready` | None | Bounded state-projection readiness |
 | `GET /v1/system/capabilities` | JWT operations scope | Effective provider and preview capabilities |
-| `GET /v1/subscriptions` | JWT operations scope | Bounded, redacted subscription inspection |
-| `GET /v1/dlq` | JWT operations scope | Bounded, metadata-only DLQ inspection |
+| `GET /v1/topics` | JWT operations scope | Bounded canonical topic summaries |
+| `GET /v1/topics/{id}` | JWT operations scope | Safe canonical topic detail |
+| `GET /v1/subscriptions` | JWT operations scope | Bounded canonical subscription summaries |
+| `GET /v1/subscriptions/{id}` | JWT operations scope | Safe canonical subscription detail |
 | `GET /metrics` | JWT operations scope | Prometheus-compatible bounded metrics |
+
+The topic and subscription routes are an internal preview contract for a
+future control-plane BFF, not a supported public customer administration API.
+Their revision comes from the consolidator's canonical materialized snapshot;
+StateStore events remain the durable source of truth. Management visibility
+does not guarantee that a particular hub's local admission projection has
+caught up. Consolidator failure returns `503` without a local-projection
+fallback. Collection limits are bounded to 100; cursor pagination is reserved
+but not implemented in v0.5.
 
 Public protocol and operations mutations do not have an unauthenticated mode
 in the preview. Configure an exact issuer, audience, HTTPS JWKS URL, asymmetric

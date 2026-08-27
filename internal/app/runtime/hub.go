@@ -30,6 +30,7 @@ import (
 	"github.com/ayeshLK/websubhub/internal/consolidator"
 	"github.com/ayeshLK/websubhub/internal/delivery"
 	"github.com/ayeshLK/websubhub/internal/ingest"
+	"github.com/ayeshLK/websubhub/internal/management"
 	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	storekafka "github.com/ayeshLK/websubhub/internal/persistence/messagestore/kafka"
 	"github.com/ayeshLK/websubhub/internal/persistence/statestore"
@@ -145,11 +146,11 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 		return err
 	}
 
-	dlq, err := admin.NewMessageStoreDLQInspector(administrator, messagestore.Destination(cfg.Delivery.DLQDestination))
+	queries, err := management.New(snapshotSource)
 	if err != nil {
 		return err
 	}
-	operations, err := admin.New(admin.Dependencies{Authentication: verifier, Readiness: projection, Projection: projection, Capabilities: administrator, DLQ: dlq})
+	operations, err := admin.New(admin.Dependencies{Authentication: verifier, Readiness: projection, Projection: projection, Capabilities: administrator, Queries: queries})
 	if err != nil {
 		return err
 	}
