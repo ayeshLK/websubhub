@@ -1,66 +1,180 @@
 # WebSubHub
 
-WebSubHub is an open-source HTTP Event Broker. Publishers use HTTP, WebSubHub
-owns durable event and subscription behavior, and verified subscribers receive
-at-least-once HTTP push delivery.
+[![CI](https://github.com/ayeshLK/websubhub/actions/workflows/ci.yml/badge.svg)](https://github.com/ayeshLK/websubhub/actions/workflows/ci.yml)
+[![Go version](https://img.shields.io/github/go-mod/go-version/ayeshLK/websubhub)](go.mod)
+[![License](https://img.shields.io/github/license/ayeshLK/websubhub)](LICENSE)
+[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#project-status)
 
-The repository is implementing the `v0.5.0` Kafka BYOB preview. Through Slice
-5, it defines provider-neutral persistence contracts, capability validation,
-concrete versioned state records, deterministic reduction, snapshots, and
-conformance fixtures, plus a franz-go Kafka provider with a real-broker test
-profile. Slice 3 adds strict TOML configuration, hierarchical environment
-overrides, optional internal mTLS, MessageStore-backed StateStore behavior,
-barrier snapshots, consolidator readiness, and gap-free buffered hub projection
-startup. Slice 4 pins and composes `lib-websubhub` v0.6.0, maps resource-topic
-lifecycle callbacks to durable state events, seals subscription secrets behind
-an injected boundary, assigns stable product identities, and rejects preview
-renewal without scheduling lease expiry. Slice 5 persists exact publisher
-representations, runs one sequential consumer per locally owned subscription,
-delivers through the pinned library with stable message IDs and HMAC support,
-and implements explicit HTTP-managed or MessageStore-managed retry, durable
-acknowledgement, stale/removal transitions, reconnect, and DLQ behavior.
-Slice 6 requires JWT/JWKS authentication and operation scopes on public and
-administrative endpoints, enforces callback destination policy at admission
-and dial time, encrypts persisted subscription secrets with a file-backed
-AES-256-GCM key, and provides separate health and protected operations
-surfaces with bounded redacted inspection and low-cardinality metrics.
-Slice 7 composes the two process-specific configurations into runnable hub and
-consolidator binaries, adds a two-hub preview topology, and validates durable
-state recovery and delivery ownership against the pinned `apache/kafka:4.1.0`
-image.
+**Make HTTP a complete, open event-broker interface across organizational
+boundaries.**
 
-## Product boundaries
+WebSubHub is an open-source, self-hosted **HTTP Event Broker**. Publishers use
+HTTP, WebSubHub owns durable event and subscription behavior, and verified
+subscribers receive at-least-once HTTP push delivery. Kafka provides the
+durable engine for the first Bring Your Own Broker (BYOB) profile without
+leaking Kafka clients, offsets, consumer groups, or credentials into the public
+product contract.
 
-WebSubHub keeps two topic contracts distinct:
+> [!IMPORTANT]
+> WebSubHub is under active development and has not published a supported
+> runtime release. The current `v0.5.0` target is a developer preview of the
+> Kafka-backed **WebSub resource-topic** path. The CloudEvents event-stream API,
+> renewal, lease expiry, and automatic ownership failover are not implemented
+> yet. Do not treat the current branch as production-ready.
 
-- WebSub resource topics distribute the current representation of a
-  URL-addressed resource through the W3C WebSub lifecycle.
-- Event-stream topics will distribute immutable CloudEvents through a separate
-  product-owned publication, progress, retention, and replay contract.
+## Why WebSubHub?
 
-The first implementation targets WebSub resource topics using Kafka supplied
-by the operator. Renewal, lease expiry, automatic ownership transfer, the
-event-stream API, SQLite, IBM MQ, Solace, Native Cluster, the Control Plane, and
-the full administration CLI are outside the `v0.5.0` boundary.
+Events often cross team, company, network, and technology boundaries.
+Traditional brokers require broker-specific clients and network access, while
+webhook systems repeatedly rebuild durability, verification, retry, progress,
+dead-letter handling, and endpoint safety.
+
+WebSubHub puts an HTTP-native boundary around those broker responsibilities:
+
+- publishers and subscribers integrate with ordinary HTTP;
+- callbacks are verified before a subscription becomes active;
+- accepted content is persisted before durable acceptance is returned;
+- each subscription owns independent delivery progress and retry behavior;
+- provider details remain behind a capability-aware MessageStore contract;
+- callback SSRF controls, JWT authorization, secret protection, health, and
+  diagnostics are product responsibilities rather than application glue.
+
+Delivery is deliberately **at least once**. Subscribers must handle duplicates
+idempotently; WebSubHub does not claim end-to-end exactly-once delivery.
+
+## Two explicit topic contracts
+
+WebSubHub keeps resource distribution and immutable event streams distinct.
+
+| Contract | Intended use | Status |
+|---|---|---|
+| **WebSub resource topic** | Distribute the current representation of a URL-addressed resource using the W3C WebSub lifecycle | Implemented by the `v0.5.0` preview |
+| **CloudEvents event stream** | Distribute immutable events with broker-owned retention, progress, pause/resume, replay, and DLQ semantics | Public contract is gated and not implemented |
+
+WebSub conformance claims apply only to relevant resource-topic behavior. The
+optional publisher-to-hub extension is explicitly non-W3C behavior.
+
+## Preview capabilities
+
+The current implementation provides:
+
+- two runnable Go services: `websubhub` and
+  `websubhub-consolidator`;
+- strict, process-specific TOML configuration with hierarchical
+  `WEBSUBHUB__...` environment overrides;
+- Kafka-backed provider-neutral MessageStore and MessageStore-backed
+  StateStore behavior;
+- deterministic state reduction, revisioned snapshots, and buffered hub
+  startup without a snapshot/event gap;
+- WebSub topic registration/deregistration and verified subscribe/unsubscribe
+  lifecycle persistence;
+- exact publisher payload and complete `Content-Type` preservation;
+- sequential per-subscription delivery with stable message IDs and WebSub HMAC
+  signatures;
+- HTTP-managed or MessageStore-managed retry, stale state, HTTP `410 Gone`
+  removal, and safe DLQ inspection;
+- stable hub ownership so two hubs project all state while only the recorded
+  owner delivers a subscription;
+- JWT/JWKS authentication and scope authorization for public mutations and
+  protected operations;
+- callback policy enforcement at admission and DNS/IP dial time, redirect
+  refusal, and bounded HTTP behavior;
+- AES-256-GCM encryption of persisted subscription secrets;
+- optional mTLS for hub-to-consolidator communication;
+- liveness, readiness, capabilities, subscription inspection, DLQ inspection,
+  and low-cardinality Prometheus text metrics;
+- a repeatable two-hub acceptance topology using
+  `apache/kafka:4.1.0`.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    P[HTTP publisher] -->|register and publish| H[websubhub]
+    S[HTTP subscriber] -->|verified subscribe| H
+    H -->|state events and exact content| K[(Kafka)]
+    K -->|state events| C[websubhub-consolidator]
+    C -->|barrier snapshot| H
+    K -->|independent subscription progress| D[owned delivery worker]
+    D -->|signed HTTP push| S
+```
+
+Every hub consumes the complete product state. A subscription's persisted
+`server_id` selects its delivery owner in the preview; automatic takeover and
+fencing are deferred.
+
+## Quick start
+
+### Prerequisites
+
+- Go 1.25.8 or a newer supported Go release
+- Docker with Compose v2
+- OpenSSL
+- GNU Make (optional, but used by the commands below)
+
+Clone the repository and run the complete preview smoke test:
+
+```sh
+git clone https://github.com/ayeshLK/websubhub.git
+cd websubhub
+make compose-smoke
+```
+
+The smoke test:
+
+1. builds static local binaries;
+2. generates ignored, two-day test credentials;
+3. starts Kafka 4.1.0, the consolidator, two hubs, and a controlled
+   JWT/subscriber fixture;
+4. exercises authentication, registration, verification, exact content,
+   signed delivery, retry, DLQ, stale/removal behavior, cross-hub projection,
+   and owner restart recovery;
+5. removes its containers, network, and Kafka volume when it exits.
+
+Generated local credentials remain under
+`deploy/compose/.generated/` and must never be reused outside this test
+topology.
 
 ## Build
 
-Go 1.25.8 or newer is required, and the latest security patch for the selected
-Go release line must be used. CI tests Go 1.25.x, 1.26.x, and 1.27.x. GNU Make
-is optional and provides the repository shortcuts
-shown below.
+Build both services:
 
 ```sh
-make check
 make build
 ./bin/websubhub --version
 ./bin/websubhub-consolidator --version
 ```
 
-Builds may set `VERSION`, `COMMIT`, and `BUILD_DATE`; release automation will
-provide them from the protected release workflow.
+Build metadata can be supplied explicitly:
 
-The portable Kafka suite runs against a real broker when its address is set:
+```sh
+make build VERSION=v0.5.0-dev COMMIT=local BUILD_DATE=2026-08-27T00:00:00Z
+```
+
+The binaries accept a process-specific TOML file:
+
+```text
+websubhub --config /path/to/websubhub.toml
+websubhub-consolidator --config /path/to/websubhub-consolidator.toml
+```
+
+Start Kafka and the consolidator before the hub. The files under
+[`configs/`](configs/) are secure configuration templates, not immediately
+runnable credentials; copy and adapt them for your broker, identity provider,
+TLS identities, and secret mounts.
+
+## Test
+
+Run the appropriate level of validation:
+
+| Command | Coverage |
+|---|---|
+| `make test` | Shuffled Go unit and package tests |
+| `make check` | Formatting, generated drift, source headers, vet, shuffled tests, race detector, dependency licenses, and documentation links |
+| Kafka conformance command below | Provider contract against a real Kafka broker |
+| `make compose-smoke` | Full two-hub Kafka acceptance topology |
+
+Run the Kafka provider conformance suite against an existing broker:
 
 ```sh
 WEBSUBHUB_TEST_KAFKA_BROKERS=127.0.0.1:9092 \
@@ -68,64 +182,104 @@ WEBSUBHUB_TEST_KAFKA_BROKERS=127.0.0.1:9092 \
   ./internal/persistence/messagestore/kafka
 ```
 
-The full preview smoke test builds local static binaries, generates ephemeral
-two-day test certificates, starts Kafka 4.1.0, the consolidator, two hubs, and a
-controlled JWT/subscriber fixture, then removes the test containers and volume:
+For focused development, standard Go tooling also works:
 
 ```sh
-make compose-smoke
+go test ./internal/delivery
+go test -race ./...
+go vet ./...
 ```
 
-It covers JWT enforcement, resource registration, verified subscriptions,
-single-owner signed delivery, MessageStore redelivery, DLQ/stale/removal
-outcomes, cross-hub projection consistency, and continued delivery after the
-owning hub restarts. Generated credentials remain ignored under
-`deploy/compose/.generated/` and are for local acceptance only.
+CI tests the configured Go version matrix and additionally runs Kafka provider
+conformance, vulnerability scanning, and secret scanning. Third-party GitHub
+Actions are pinned to immutable commit SHAs.
 
 ## Configuration
 
-Configuration uses two strict process-specific TOML roots:
+WebSubHub uses two strict configuration roots:
 
-- [`configs/websubhub.example.toml`](configs/websubhub.example.toml) contains
-  the hub listener, public URL, bounded protocol behavior, stable server ID,
-  state projection, consolidator client, delivery policy, and MessageStore.
+- [`configs/websubhub.example.toml`](configs/websubhub.example.toml) configures
+  the public and operations listeners, stable server ID, JWT policy, callback
+  safety, subscription-secret provider, state projection, consolidator client,
+  delivery, and Kafka MessageStore.
 - [`configs/websubhub-consolidator.example.toml`](configs/websubhub-consolidator.example.toml)
-  contains the consolidator listener and MessageStore.
+  configures the internal snapshot service, state behavior, authentication,
+  and Kafka MessageStore.
 
-Shared Kafka and TLS value types are implemented once, but each loader rejects
-settings owned by the other process. Environment variables override leaf fields
-relative to that process's root using double underscores. For example,
-`WEBSUBHUB__SERVER__ID=hub-b` overrides the hub's `server.id` and is rejected
-by the consolidator.
+Unknown keys, incomplete security settings, invalid retry combinations, and
+settings owned by the other process are rejected. Environment variables
+override leaf fields using double underscores:
 
-Internal hub-to-consolidator authentication is explicitly `mtls` or `none`.
-The hub's client identity is under `consolidator.auth.mtls`; the
-consolidator's server identity and client CA are under `server.auth.mtls`.
-mTLS is recommended and verifies both peers. `none` is intended only for an
-isolated trusted network and never results from a partial TLS configuration.
+```sh
+WEBSUBHUB__SERVER__ID=hub-b
+WEBSUBHUB__SERVER__PUBLIC_URL=https://hub-b.example.com/websub
+WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS='["kafka-1:9092","kafka-2:9092"]'
+```
 
-Public protocol and operations endpoints do not have an unauthenticated mode in
-the v0.5 preview. Configure the exact JWT issuer, audience, HTTPS JWKS URL, and
-asymmetric algorithm allowlist under `security.jwt`. Protocol operations use
-the scopes recorded in ADR 0016. Liveness and bounded readiness are the only
-unauthenticated operations endpoints.
+Kafka TLS and SASL credentials are loaded through file references rather than
+inline example secrets. Hub-to-consolidator authentication is either `mtls`
+or `none`; mTLS is recommended, while `none` is intended only for an
+isolated trusted network.
 
-Callback delivery permits public HTTPS destinations on configured ports by
-default. Private networks and HTTP require an explicit exact-host/CIDR and port
-allowlist. Subscription HMAC secrets are encrypted before state persistence
-using the key reference under `security.secrets`; the key file contains 32 raw
-bytes or their standard base64 encoding.
+## HTTP and operations surfaces
 
-## Architecture decisions
+The hub path comes from `server.public_url`. Operational endpoints are served
+on the separate `operations.listen` listener:
 
-Accepted decisions and unresolved implementation gates are recorded under
-[`docs/architecture/decisions`](docs/architecture/decisions/README.md).
+| Endpoint | Authentication | Purpose |
+|---|---|---|
+| `GET /health/live` | None | Process liveness |
+| `GET /health/ready` | None | Bounded state-projection readiness |
+| `GET /v1/system/capabilities` | JWT operations scope | Effective provider and preview capabilities |
+| `GET /v1/subscriptions` | JWT operations scope | Bounded, redacted subscription inspection |
+| `GET /v1/dlq` | JWT operations scope | Bounded, metadata-only DLQ inspection |
+| `GET /metrics` | JWT operations scope | Prometheus-compatible bounded metrics |
 
-## Security
+Public protocol and operations mutations do not have an unauthenticated mode
+in the preview. Configure an exact issuer, audience, HTTPS JWKS URL, asymmetric
+algorithm allowlist, and operation scopes.
 
-Do not report vulnerabilities through a public issue. Follow
-[`SECURITY.md`](SECURITY.md) instead.
+## Repository layout
+
+```text
+cmd/                              service entry points
+configs/                          process-specific configuration examples
+deploy/compose/                   local Kafka preview topology
+docs/architecture/decisions/     accepted ADRs and open gates
+internal/app/                     composition roots and protocol adapter
+internal/persistence/             MessageStore, Kafka, and StateStore
+internal/delivery/                per-subscription delivery behavior
+internal/security/                JWT, callback policy, and secret protection
+test/acceptance/                  end-to-end Compose acceptance test
+```
+
+## Project status
+
+The repository has completed the implementation slices through the Kafka
+Compose acceptance topology. Work remaining before the first developer preview
+includes expanded failure qualification, operational wiring, release
+documentation, reproducible archives, SBOM/provenance, and coordinated GitHub
+Release and Docker Hub automation.
+
+Later releases add the gated CloudEvents event-stream contract, renewal and
+lease expiry, automatic ownership transfer and fencing, richer administration,
+production packaging and recovery qualification, and eventually additional
+persistence profiles.
+
+See the [architecture decisions](docs/architecture/decisions/README.md) for
+accepted behavior and unresolved gates.
+
+## Contributing
+
+WebSubHub welcomes issues, design feedback, documentation improvements, and
+tested code changes. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a
+public HTTP contract, persisted schema, provider capability, or security
+boundary change.
+
+Please report security vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md), not through a public issue.
 
 ## License
 
-Apache License 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+WebSubHub is licensed under the [Apache License 2.0](LICENSE). See
+[`NOTICE`](NOTICE) for attribution notices.

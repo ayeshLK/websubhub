@@ -20,7 +20,9 @@ triage.
 
 ## Current status
 
-The repository is only a build and quality scaffold. It is not safe to deploy
-as a hub. Authentication, authorization, callback SSRF defenses, secret
-encryption, persistence, delivery, and operational controls have not yet been
-implemented.
+The repository is implementing a `v0.5.0` Kafka BYOB developer preview. It
+includes JWT authentication and scope authorization, callback SSRF defenses,
+encrypted persisted subscription secrets, durable state/content handling,
+at-least-once delivery, and protected operational inspection. It has not
+completed release, failure-qualification, upgrade, or production-hardening
+gates and must not be treated as a supported production deployment.
