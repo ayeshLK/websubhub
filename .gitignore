@@ -31,6 +31,15 @@ profile.cov
 /go.work
 /go.work.sum
 
+# Local agent state, transcripts, indexes, and caches. Repository instructions
+# such as AGENTS.md and shareable tool configuration remain trackable.
+.agents/
+.codex/
+.claude/settings.local.json
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache*/
+
 # Local environment files may contain credentials; examples remain trackable.
 /.env
 /.env.*
