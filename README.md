@@ -173,6 +173,49 @@ Start Kafka and the consolidator before the hub. The files under
 runnable credentials; copy and adapt them for your broker, identity provider,
 TLS identities, and secret mounts.
 
+## Release distributions
+
+Both components share one product version but are packaged and deployed
+independently. Every release provides separate `websubhub` and
+`websubhub-consolidator` archives for Linux, macOS, and Windows on `amd64` and
+`arm64`. An extracted archive has this shape:
+
+```text
+<component>_<version>_<os>_<arch>/
+├── bin/<component>[.exe]
+├── config/<component>.toml
+├── README.md
+├── LICENSE
+└── NOTICE
+```
+
+The included TOML is a secure template rather than runnable credentials. Start
+Kafka, then the consolidator, then one or more hubs. Use the same release
+version for both processes.
+
+Production container targets are published separately for Linux `amd64` and
+`arm64`:
+
+```sh
+docker pull ayeshalmeida/websubhub:0.5.0
+docker pull ayeshalmeida/websubhub-consolidator:0.5.0
+
+docker run --rm ayeshalmeida/websubhub:0.5.0 --version
+docker run --rm ayeshalmeida/websubhub-consolidator:0.5.0 --version
+```
+
+These commands become available when `v0.5.0` is published; the repository has
+not yet published that preview. Runtime deployments must mount the appropriate
+configuration and secret files and provide Kafka/network connectivity. Images
+run as non-root and intentionally contain only their component application binary.
+
+Release assets include SHA-256 checksums, per-archive SPDX JSON SBOMs, keyless
+Sigstore signatures, and provenance attestations. Initial macOS and Windows
+artifacts do not have native platform signing; that roadmap item is tracked in
+[issue #7](https://github.com/ayeshLK/websubhub/issues/7). See the
+[release guide](docs/releasing.md) for artifact names, verification commands,
+local dry runs, and the maintainer publication checklist.
+
 ## Test
 
 Run the appropriate level of validation:
@@ -267,6 +310,8 @@ cmd/                              service entry points
 configs/                          process-specific configuration examples
 deploy/compose/                   local Kafka preview topology
 docs/architecture/decisions/     accepted ADRs and open gates
+packaging/                        per-component release contents
+scripts/                          release layout verification
 internal/app/                     composition roots and protocol adapter
 internal/persistence/             MessageStore, Kafka, and StateStore
 internal/delivery/                per-subscription delivery behavior
@@ -277,10 +322,11 @@ test/acceptance/                  end-to-end Compose acceptance test
 ## Project status
 
 The repository has completed the implementation slices through the Kafka
-Compose acceptance topology. Work remaining before the first developer preview
-includes expanded failure qualification, operational wiring, release
-documentation, reproducible archives, SBOM/provenance, and coordinated GitHub
-Release and Docker Hub automation.
+Compose acceptance topology and now includes guarded release foundations for
+independent six-platform archives and the two Docker Hub images. No runtime
+release has been published. Work remaining before the first developer preview
+includes expanded failure qualification, operational wiring, repository
+release-environment setup, and an end-to-end release-candidate rehearsal.
 
 Later releases add the gated CloudEvents event-stream contract, renewal and
 lease expiry, automatic ownership transfer and fencing, richer administration,

@@ -1,0 +1,129 @@
+[server]
+id = "hub-a"
+listen = ":8080"
+public_url = "https://hub.example.com/websub"
+read_header_timeout = "5s"
+read_timeout = "30s"
+write_timeout = "30s"
+idle_timeout = "60s"
+shutdown_timeout = "30s"
+
+[operations]
+# Bind to a separate interface/listener; all non-health endpoints require JWT.
+listen = "127.0.0.1:9090"
+read_header_timeout = "5s"
+read_timeout = "15s"
+write_timeout = "15s"
+idle_timeout = "60s"
+shutdown_timeout = "30s"
+
+[security.jwt]
+issuer = "https://identity.example.com"
+audience = "websubhub"
+jwks_url = "https://identity.example.com/.well-known/jwks.json"
+algorithms = ["RS256"]
+scope_claim = "scope"
+clock_skew = "30s"
+cache_ttl = "15m"
+request_timeout = "5s"
+max_token_bytes = 16384
+
+[security.callbacks]
+# HTTPS is mandatory unless the exact callback host is explicitly allowed.
+allowed_ports = [443]
+allowed_hosts = []
+allowed_cidrs = []
+connect_timeout = "5s"
+tls_handshake_timeout = "10s"
+response_header_timeout = "10s"
+
+[security.secrets]
+# File contains exactly 32 raw bytes or their standard base64 encoding.
+key_file = "/run/secrets/websubhub-subscription-key"
+key_id = "local-v1"
+
+[protocol]
+# The publisher extension is product-specific and is not part of W3C WebSub.
+publisher_extension_enabled = true
+default_lease = "240h"
+max_lease = "240h"
+max_request_body = 65536
+max_callback_body = 4096
+verification_timeout = "10s"
+verification_workers = 4
+verification_queue = 1024
+hub_error_callback_enabled = false
+
+[consolidator]
+endpoint = "https://consolidator.internal:8081"
+timeout = "10s"
+
+[consolidator.auth]
+# Use "none" only when the internal connection stays on a trusted network.
+mode = "mtls"
+
+[consolidator.auth.mtls]
+certificate_file = "/run/secrets/hub.crt"
+private_key_file = "/run/secrets/hub.key"
+server_ca_file = "/run/secrets/internal-server-ca.crt"
+server_name = "consolidator.internal"
+
+[state.events]
+# Must match state.events.destination in websubhub-consolidator.toml.
+destination = "websub-events"
+consumer_batch_size = 100
+
+[state.startup]
+# Startup fails without acknowledging a partial buffer when this bound is exceeded.
+buffer_max = 1000
+
+[delivery]
+consumer_batch_size = 100
+reconnect_interval = "5s"
+request_timeout = "30s"
+max_response_body = 65536
+dlq_destination = "websub-delivery-dlq"
+
+[delivery.retry]
+# Exactly one strategy executes: "http" or "message_store".
+strategy = "http"
+
+[delivery.retry.http]
+max_attempts = 5
+initial_interval = "1s"
+backoff_factor = 2.0
+max_interval = "30s"
+jitter_factor = 0.2
+retry_status_codes = [408, 429, 500, 502, 503, 504]
+reset_on_exhaust = false
+
+[delivery.retry.message_store]
+delay = "5s"
+redeliver_status_codes = [408, 429, 500, 502, 503, 504]
+dead_letter_status_codes = [400, 404]
+fail_status_codes = []
+default_action = "fail"
+network_failure_action = "redeliver"
+
+[message_store]
+provider = "kafka"
+
+[message_store.kafka]
+brokers = ["kafka-1:9093", "kafka-2:9093", "kafka-3:9093"]
+client_id = "websubhub"
+dial_timeout = "10s"
+request_timeout_overhead = "30s"
+default_replication_factor = -1
+
+[message_store.kafka.tls]
+enabled = true
+ca_file = "/run/secrets/kafka-ca.crt"
+certificate_file = "/run/secrets/kafka-hub.crt"
+private_key_file = "/run/secrets/kafka-hub.key"
+server_name = ""
+insecure_skip_verify = false
+
+[message_store.kafka.sasl]
+mechanism = ""
+username = ""
+password_file = ""
