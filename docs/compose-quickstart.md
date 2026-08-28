@@ -96,16 +96,18 @@ curl -i \
 The expected response is `200 OK`.
 
 WebSubHub acknowledges the durable state append before every hub projection is
-guaranteed to have observed it. If the immediately following subscription
-returns `409 Conflict`, wait for the projection revision to advance and retry:
+guaranteed to have observed it. Inspect the canonical topic query view:
 
 ~~~sh
 curl --silent \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:9090/v1/subscriptions | jq
+  http://localhost:9090/v1/topics | jq
 ~~~
 
-The response's `revision` should be at least `1`.
+A response revision of at least `1` confirms that the consolidator query view
+contains the durable registration. It does not guarantee that Hub A's local
+admission projection has caught up. If subscription returns `409 Conflict`,
+retry it.
 
 ## 4. Configure the subscriber fixture
 
@@ -144,7 +146,7 @@ curl -i \
 The fixture echoes the WebSub challenge, and a successful verified
 subscription returns `202 Accepted`.
 
-Inspect the projected subscription:
+Inspect the canonical, redacted subscription view:
 
 ~~~sh
 curl --silent \
@@ -234,13 +236,21 @@ curl --silent \
   http://localhost:9090/v1/system/capabilities | jq
 ~~~
 
-Dead-letter metadata:
+Canonical topic and subscription state:
 
 ~~~sh
 curl --silent \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:9090/v1/dlq | jq
+  http://localhost:9090/v1/topics | jq
+
+curl --silent \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:9090/v1/subscriptions?status=active" | jq
 ~~~
+
+Both responses carry the consolidator snapshot revision. The management views
+are an internal preview contract for a future control-plane BFF. DLQ browsing
+is not exposed in v0.5.
 
 Prometheus-compatible metrics:
 
@@ -316,7 +326,9 @@ Obtain a fresh token. Fixture tokens expire after 15 minutes.
 ### A subscription returns `409 Conflict`
 
 The topic registration may be durable but not visible in the local projection
-yet. Inspect `/v1/subscriptions`, wait for its revision to advance, and retry.
+yet. The `/v1/topics` revision reports consolidator visibility, not a local
+hub synchronization barrier. Retry the subscription; WebSubHub will accept it
+after the local projection catches up.
 
 ### Callback verification is rejected
 

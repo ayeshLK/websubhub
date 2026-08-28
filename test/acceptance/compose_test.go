@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -42,8 +43,21 @@ const (
 )
 
 type subscription struct {
+	ID       string `json:"id"`
+	TopicID  string `json:"topic_id"`
 	Callback string `json:"callback"`
 	Status   string `json:"status"`
+}
+
+type topic struct {
+	ID     string `json:"id"`
+	URL    string `json:"url"`
+	Status string `json:"status"`
+}
+
+type topics struct {
+	Revision uint64  `json:"revision"`
+	Topics   []topic `json:"topics"`
 }
 
 type subscriptions struct {
@@ -81,7 +95,9 @@ func TestComposeResourceLifecycle(t *testing.T) {
 	formStatus(t, ctx, client, token, hubA, http.StatusOK, url.Values{
 		"hub.mode": {"register"}, "hub.topic": {topicURL}, "hub.content_type": {"application/json"},
 	})
-	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool { return a.Revision >= 1 && b.Revision >= 1 })
+	waitTopics(t, ctx, client, token, func(a, b topics) bool {
+		return a.Revision >= 1 && a.Revision == b.Revision && len(a.Topics) == 1 && reflect.DeepEqual(a.Topics, b.Topics)
+	})
 
 	controls := map[string]int{
 		"/callback-success": http.StatusNoContent,
@@ -92,7 +108,7 @@ func TestComposeResourceLifecycle(t *testing.T) {
 	}
 	for path, status := range controls {
 		control(t, ctx, client, path, status)
-		formStatus(t, ctx, client, token, hubA, http.StatusAccepted, url.Values{
+		formEventuallyStatus(t, ctx, client, token, hubA, http.StatusAccepted, url.Values{
 			"hub.mode": {"subscribe"}, "hub.topic": {topicURL}, "hub.callback": {"http://fixture:8082" + path},
 			"hub.verify": {"sync"}, "hub.lease_seconds": {"300"}, "hub.secret": {"compose-secret"},
 		})
@@ -100,6 +116,7 @@ func TestComposeResourceLifecycle(t *testing.T) {
 	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool {
 		return a.Revision >= 6 && b.Revision >= 6 && statusCount(a, "active") == 5 && statusCount(b, "active") == 5
 	})
+	waitLocalSubscriptionCount(t, ctx, client, token, 5)
 
 	payload := []byte(`{"order":"compose-1"}`)
 	publish(t, ctx, client, token, hubA, payload)
@@ -118,7 +135,6 @@ func TestComposeResourceLifecycle(t *testing.T) {
 		return statusFor(a, "/callback-stale") == "stale" && statusFor(a, "/callback-gone") == "removed" &&
 			statusFor(b, "/callback-stale") == "stale" && statusFor(b, "/callback-gone") == "removed"
 	})
-	waitDLQCount(t, ctx, client, token, 1)
 	settled := waitReceipts(t, ctx, client, func(receipts map[string]receipt) bool {
 		return receipts["/callback-retry"].Count > first["/callback-retry"].Count
 	})
@@ -130,7 +146,6 @@ func TestComposeResourceLifecycle(t *testing.T) {
 		return receipts["/callback-success"].Count >= 2 && receipts["/callback-retry"].Count > settled["/callback-retry"].Count &&
 			receipts["/callback-dlq"].Count == 2 && receipts["/callback-stale"].Count == 1 && receipts["/callback-gone"].Count == 1
 	})
-	waitDLQCount(t, ctx, client, token, 2)
 	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool { return a.Revision == b.Revision && a.Revision >= 8 })
 }
 
@@ -165,6 +180,24 @@ func formStatus(t *testing.T, ctx context.Context, client *http.Client, token, e
 		body, _ := io.ReadAll(response.Body)
 		t.Fatalf("form status = %d, want %d: %s", response.StatusCode, want, body)
 	}
+}
+
+func formEventuallyStatus(t *testing.T, ctx context.Context, client *http.Client, token, endpoint string, want int, values url.Values) {
+	t.Helper()
+	wait(t, ctx, func() bool {
+		response := request(t, ctx, client, http.MethodPost, endpoint, "application/x-www-form-urlencoded", strings.NewReader(values.Encode()), token)
+		defer response.Body.Close()
+		switch response.StatusCode {
+		case want:
+			return true
+		case http.StatusConflict:
+			return false
+		default:
+			body, _ := io.ReadAll(response.Body)
+			t.Fatalf("form status = %d, want %d: %s", response.StatusCode, want, body)
+			return false
+		}
+	})
 }
 
 func publish(t *testing.T, ctx context.Context, client *http.Client, token, endpoint string, body []byte) {
@@ -217,6 +250,28 @@ func control(t *testing.T, ctx context.Context, client *http.Client, path string
 	}
 }
 
+func waitTopics(t *testing.T, ctx context.Context, client *http.Client, token string, condition func(topics, topics) bool) (topics, topics) {
+	t.Helper()
+	var a, b topics
+	wait(t, ctx, func() bool {
+		a = getTopics(t, ctx, client, token, operationsA)
+		b = getTopics(t, ctx, client, token, operationsB)
+		return condition(a, b)
+	})
+	return a, b
+}
+
+func getTopics(t *testing.T, ctx context.Context, client *http.Client, token, endpoint string) topics {
+	t.Helper()
+	response := request(t, ctx, client, http.MethodGet, endpoint+"/v1/topics", "", nil, token)
+	defer response.Body.Close()
+	var result topics
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&result) != nil {
+		return topics{}
+	}
+	return result
+}
+
 func waitSubscriptions(t *testing.T, ctx context.Context, client *http.Client, token string, condition func(subscriptions, subscriptions) bool) (subscriptions, subscriptions) {
 	t.Helper()
 	var a, b subscriptions
@@ -237,6 +292,26 @@ func getSubscriptions(t *testing.T, ctx context.Context, client *http.Client, to
 		return subscriptions{}
 	}
 	return result
+}
+
+func waitLocalSubscriptionCount(t *testing.T, ctx context.Context, client *http.Client, token string, want int) {
+	t.Helper()
+	metric := fmt.Sprintf(`websubhub_subscriptions{status="active"} %d`, want)
+	wait(t, ctx, func() bool {
+		return strings.Contains(getMetrics(t, ctx, client, token, operationsA), metric) &&
+			strings.Contains(getMetrics(t, ctx, client, token, operationsB), metric)
+	})
+}
+
+func getMetrics(t *testing.T, ctx context.Context, client *http.Client, token, endpoint string) string {
+	t.Helper()
+	response := request(t, ctx, client, http.MethodGet, endpoint+"/metrics", "", nil, token)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, _ := io.ReadAll(response.Body)
+	return string(body)
 }
 
 func waitReceipts(t *testing.T, ctx context.Context, client *http.Client, condition func(map[string]receipt) bool) map[string]receipt {
@@ -262,18 +337,6 @@ func waitReceipts(t *testing.T, ctx context.Context, client *http.Client, condit
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
-}
-
-func waitDLQCount(t *testing.T, ctx context.Context, client *http.Client, token string, want int) {
-	t.Helper()
-	wait(t, ctx, func() bool {
-		response := request(t, ctx, client, http.MethodGet, operationsA+"/v1/dlq", "", nil, token)
-		defer response.Body.Close()
-		var result struct {
-			Entries []json.RawMessage `json:"entries"`
-		}
-		return response.StatusCode == http.StatusOK && json.NewDecoder(response.Body).Decode(&result) == nil && len(result.Entries) == want
-	})
 }
 
 func restartHubA(t *testing.T, ctx context.Context) {

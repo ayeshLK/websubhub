@@ -24,13 +24,13 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 
+	"github.com/ayeshLK/websubhub/internal/management"
 	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/ayeshLK/websubhub/internal/security/auth"
 	"github.com/ayeshLK/websubhub/internal/state"
 )
-
-const maximumPageSize = 100
 
 type Authentication interface {
 	Middleware(http.Handler) http.Handler
@@ -49,26 +49,12 @@ type CapabilitySource interface {
 	Capabilities(context.Context) (messagestore.Capabilities, error)
 }
 
-type DLQEntry struct {
-	MessageID      string `json:"message_id"`
-	TopicID        string `json:"topic_id"`
-	SubscriptionID string `json:"subscription_id"`
-	FailureClass   string `json:"failure_class"`
-	Attempt        uint32 `json:"attempt"`
-	ContentType    string `json:"content_type"`
-	BodyBytes      int64  `json:"body_bytes"`
-}
-
-type DLQInspector interface {
-	List(context.Context, int) ([]DLQEntry, error)
-}
-
 type Dependencies struct {
 	Authentication Authentication
 	Readiness      Readiness
 	Projection     SnapshotSource
 	Capabilities   CapabilitySource
-	DLQ            DLQInspector
+	Queries        management.QueryClient
 }
 
 type Service struct {
@@ -77,16 +63,18 @@ type Service struct {
 }
 
 func New(dependencies Dependencies) (*Service, error) {
-	if dependencies.Authentication == nil || dependencies.Readiness == nil || dependencies.Projection == nil || dependencies.Capabilities == nil || dependencies.DLQ == nil {
-		return nil, errors.New("authentication, readiness, projection, capabilities, and DLQ inspector are required")
+	if dependencies.Authentication == nil || dependencies.Readiness == nil || dependencies.Projection == nil || dependencies.Capabilities == nil || dependencies.Queries == nil {
+		return nil, errors.New("authentication, readiness, projection, capabilities, and management queries are required")
 	}
 	service := &Service{dependencies: dependencies}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health/live", service.live)
 	mux.HandleFunc("/health/ready", service.ready)
 	mux.Handle("/v1/system/capabilities", service.protected(service.capabilities))
+	mux.Handle("/v1/topics", service.protected(service.topics))
+	mux.Handle("/v1/topics/", service.protected(service.topic))
 	mux.Handle("/v1/subscriptions", service.protected(service.subscriptions))
-	mux.Handle("/v1/dlq", service.protected(service.dlq))
+	mux.Handle("/v1/subscriptions/", service.protected(service.subscription))
 	mux.Handle("/metrics", service.protected(service.metrics))
 	service.handler = mux
 	return service, nil
@@ -143,55 +131,71 @@ func (s *Service) capabilities(response http.ResponseWriter, request *http.Reque
 		statuses = append(statuses, status{Name: string(name), Support: value.Support, Detail: value.Detail})
 	}
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
-	writeJSON(response, http.StatusOK, map[string]any{"provider": capabilities.Provider, "message_store": statuses, "resource_topics": map[string]bool{"renewal": false, "lease_expiry": false, "automatic_failover": false, "event_only_fetch": false}, "delivery": map[string]any{"guarantee": "at_least_once", "replay": "manual_reactivation_only"}})
+	writeJSON(response, http.StatusOK, map[string]any{"provider": capabilities.Provider, "message_store": statuses, "resource_topics": map[string]bool{"renewal": false, "lease_expiry": false, "automatic_failover": false, "event_only_fetch": false}, "delivery": map[string]any{"guarantee": "at_least_once", "replay": "unsupported"}})
+}
+
+func (s *Service) topics(response http.ResponseWriter, request *http.Request) {
+	if !onlyGET(response, request) || !onlyQueryParameters(response, request, "limit", "status", "cursor") {
+		return
+	}
+	limit, ok := pageLimit(response, request)
+	if !ok {
+		return
+	}
+	result, err := s.dependencies.Queries.ListTopics(request.Context(), management.TopicQuery{Limit: limit, Status: request.URL.Query().Get("status")})
+	if err != nil {
+		writeQueryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
+}
+
+func (s *Service) topic(response http.ResponseWriter, request *http.Request) {
+	if !onlyGET(response, request) || !onlyQueryParameters(response, request) {
+		return
+	}
+	id, ok := pathID(response, request, "/v1/topics/")
+	if !ok {
+		return
+	}
+	result, err := s.dependencies.Queries.GetTopic(request.Context(), id)
+	if err != nil {
+		writeQueryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
 }
 
 func (s *Service) subscriptions(response http.ResponseWriter, request *http.Request) {
-	if !onlyGET(response, request) {
+	if !onlyGET(response, request) || !onlyQueryParameters(response, request, "limit", "status", "topic_id", "cursor") {
 		return
 	}
 	limit, ok := pageLimit(response, request)
 	if !ok {
 		return
 	}
-	snapshot := s.dependencies.Projection.Snapshot()
-	type item struct {
-		ID          string                   `json:"id"`
-		TopicID     string                   `json:"topic_id"`
-		Callback    string                   `json:"callback"`
-		ServerID    string                   `json:"server_id"`
-		ConsumerID  string                   `json:"consumer_id"`
-		Status      state.SubscriptionStatus `json:"status"`
-		StaleReason string                   `json:"stale_reason,omitempty"`
+	result, err := s.dependencies.Queries.ListSubscriptions(request.Context(), management.SubscriptionQuery{Limit: limit, Status: request.URL.Query().Get("status"), TopicID: request.URL.Query().Get("topic_id")})
+	if err != nil {
+		writeQueryError(response, err)
+		return
 	}
-	items := make([]item, 0, len(snapshot.Subscriptions))
-	for _, subscription := range snapshot.Subscriptions {
-		items = append(items, item{ID: subscription.ID, TopicID: subscription.TopicID, Callback: redactURL(subscription.CallbackURL), ServerID: subscription.ServerID, ConsumerID: subscription.ConsumerID, Status: subscription.Status, StaleReason: subscription.StaleReason})
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	if len(items) > limit {
-		items = items[:limit]
-	}
-	writeJSON(response, http.StatusOK, map[string]any{"revision": snapshot.Revision, "subscriptions": items})
+	writeJSON(response, http.StatusOK, result)
 }
 
-func (s *Service) dlq(response http.ResponseWriter, request *http.Request) {
-	if !onlyGET(response, request) {
+func (s *Service) subscription(response http.ResponseWriter, request *http.Request) {
+	if !onlyGET(response, request) || !onlyQueryParameters(response, request) {
 		return
 	}
-	limit, ok := pageLimit(response, request)
+	id, ok := pathID(response, request, "/v1/subscriptions/")
 	if !ok {
 		return
 	}
-	entries, err := s.dependencies.DLQ.List(request.Context(), limit)
+	result, err := s.dependencies.Queries.GetSubscription(request.Context(), id)
 	if err != nil {
-		http.Error(response, "DLQ unavailable", http.StatusServiceUnavailable)
+		writeQueryError(response, err)
 		return
 	}
-	if len(entries) > limit {
-		entries = entries[:limit]
-	}
-	writeJSON(response, http.StatusOK, map[string]any{"entries": entries})
+	writeJSON(response, http.StatusOK, result)
 }
 
 func (s *Service) metrics(response http.ResponseWriter, request *http.Request) {
@@ -230,23 +234,55 @@ func pageLimit(response http.ResponseWriter, request *http.Request) (int, bool) 
 	}
 	value := request.URL.Query().Get("limit")
 	if value == "" {
-		return maximumPageSize, true
+		return management.MaximumPageSize, true
 	}
 	limit, err := strconv.Atoi(value)
-	if err != nil || limit < 1 || limit > maximumPageSize {
+	if err != nil || limit < 1 || limit > management.MaximumPageSize {
 		http.Error(response, "limit must be between 1 and 100", http.StatusBadRequest)
 		return 0, false
 	}
 	return limit, true
 }
 
-func redactURL(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "redacted"
+func onlyQueryParameters(response http.ResponseWriter, request *http.Request, allowed ...string) bool {
+	accepted := make(map[string]struct{}, len(allowed))
+	for _, name := range allowed {
+		accepted[name] = struct{}{}
 	}
-	parsed.RawQuery, parsed.ForceQuery, parsed.Fragment, parsed.User = "", false, "", nil
-	return parsed.String()
+	for name := range request.URL.Query() {
+		if _, ok := accepted[name]; !ok {
+			http.Error(response, "unsupported query parameter", http.StatusBadRequest)
+			return false
+		}
+	}
+	return true
+}
+
+func pathID(response http.ResponseWriter, request *http.Request, prefix string) (string, bool) {
+	escapedID := strings.TrimPrefix(request.URL.EscapedPath(), prefix)
+	// A literal slash denotes another route segment. An escaped slash is part
+	// of the stable product ID, which is required for URL-valued topic IDs.
+	if escapedID == "" || strings.Contains(escapedID, "/") {
+		http.NotFound(response, request)
+		return "", false
+	}
+	id, err := url.PathUnescape(escapedID)
+	if err != nil || id == "" {
+		http.NotFound(response, request)
+		return "", false
+	}
+	return id, true
+}
+
+func writeQueryError(response http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, management.ErrInvalidQuery):
+		http.Error(response, "invalid management query", http.StatusBadRequest)
+	case errors.Is(err, management.ErrNotFound):
+		http.Error(response, "management resource not found", http.StatusNotFound)
+	default:
+		http.Error(response, "management state unavailable", http.StatusServiceUnavailable)
+	}
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
