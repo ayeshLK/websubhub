@@ -1,4 +1,6 @@
 GO ?= go
+DOCKER ?= docker
+GORELEASER ?= goreleaser
 VERSION ?= dev
 COMMIT ?= unknown
 BUILD_DATE ?= unknown
@@ -7,7 +9,7 @@ LDFLAGS = -s -w \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.commit=$(COMMIT) \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.date=$(BUILD_DATE)
 
-.PHONY: build check compose-smoke docs-check format-check source-header-check generate-check license-check test
+.PHONY: build check compose-smoke container-check docs-check format-check source-header-check generate-check license-check release-check release-snapshot test
 
 build:
 	mkdir -p bin
@@ -42,3 +44,24 @@ test:
 
 compose-smoke:
 	sh deploy/compose/smoke.sh
+
+release-check:
+	@command -v $(GORELEASER) >/dev/null || (echo "goreleaser is required" >&2; exit 1)
+	$(GORELEASER) check
+	cmp configs/websubhub.example.toml packaging/websubhub/config/websubhub.toml
+	cmp configs/websubhub-consolidator.example.toml packaging/websubhub-consolidator/config/websubhub-consolidator.toml
+
+release-snapshot: release-check
+	@command -v syft >/dev/null || (echo "syft is required" >&2; exit 1)
+	$(GORELEASER) release --snapshot --clean --skip=publish,sign
+	sh scripts/verify-release.sh
+
+container-check:
+	$(DOCKER) build --target websubhub \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) -t websubhub:local .
+	$(DOCKER) run --rm websubhub:local --version
+	$(DOCKER) build --target websubhub-consolidator \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) -t websubhub-consolidator:local .
+	$(DOCKER) run --rm websubhub-consolidator:local --version

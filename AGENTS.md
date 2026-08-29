@@ -33,11 +33,20 @@ hub-to-consolidator mTLS, Kafka-backed MessageStore and StateStore behavior,
 resource-topic ingestion and at-least-once delivery, and a two-hub Docker
 Compose acceptance topology using `apache/kafka:4.1.0`.
 
-The current handoff is pull request
-`https://github.com/ayeshLK/websubhub/pull/6`, branch
-`feat/management-query-api`, commit
-`41e72970dbcf276a50f43356c6140922f380d248`. All PR checks passed before the
-AGENTS handoff update was added.
+Pull request #6 was merged into `main` at commit
+`2f4b803fccb9fd847e4ea7fb9f81700c4affa9c4`. The active release-foundation
+work is on branch `feat/release-distribution`.
+
+ADR 0018 fixes lockstep versions with independent component packages. The
+release configuration builds 12 archives: `websubhub` and
+`websubhub-consolidator` separately for Linux, macOS, and Windows on `amd64`
+and `arm64`. Production images are separate Linux `amd64`/`arm64` manifests at
+`ayeshalmeida/websubhub` and `ayeshalmeida/websubhub-consolidator`; do not
+substitute another Docker Hub namespace. Preview images publish only exact
+semantic-version tags, not `latest`. No release or image has been published
+yet. Docker Hub repositories, `DOCKERHUB_TOKEN`, and the protected GitHub
+`release` environment must be configured before creating the first tag.
+Native macOS/Windows signing remains deferred to issue #7.
 
 PR #6 implements the protected internal control-plane BFF query contract:
 

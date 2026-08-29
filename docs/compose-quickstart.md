@@ -27,6 +27,14 @@ only.
 
 Run every command from the repository root.
 
+This topology builds a local development image from the checked-out source. It
+does not pull the public `ayeshalmeida/websubhub` or
+`ayeshalmeida/websubhub-consolidator` images and should not be used as a
+production deployment template. The fixture binary, local plaintext Kafka,
+generated credentials, and relaxed callback policy exist only to make the
+protocol journey reproducible. For released binary and container deployment,
+follow the [installation and deployment guide](installing.md).
+
 ## 1. Prepare and start the topology
 
 Build the three local static binaries and generate ignored test credentials:

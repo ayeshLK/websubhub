@@ -14,7 +14,5 @@ dial-time callback SSRF controls, and file-backed secret encryption block the
 public preview. Hub-to-consolidator authentication remains governed by ADR
 0009.
 
-## Docker Hub identity
-
-Reserve the organization and final component repository names before container
-publication is implemented.
+The Docker Hub identity and component distribution contract are resolved by
+[ADR 0018](0018-release-distribution.md).

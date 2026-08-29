@@ -1,0 +1,51 @@
+[server]
+listen = ":8081"
+read_header_timeout = "5s"
+read_timeout = "30s"
+write_timeout = "30s"
+idle_timeout = "60s"
+shutdown_timeout = "30s"
+
+[server.auth]
+# Use "none" only when the internal listener is isolated on a trusted network.
+mode = "mtls"
+
+[server.auth.mtls]
+certificate_file = "/run/secrets/consolidator.crt"
+private_key_file = "/run/secrets/consolidator.key"
+client_ca_file = "/run/secrets/internal-client-ca.crt"
+
+[state.events]
+# Must match state.events.destination in websubhub.toml.
+destination = "websub-events"
+retention = "168h"
+
+[state.snapshots]
+destination = "websub-events-snapshots"
+retention = "720h"
+
+[state.consumer]
+batch_size = 100
+
+[message_store]
+provider = "kafka"
+
+[message_store.kafka]
+brokers = ["kafka-1:9093", "kafka-2:9093", "kafka-3:9093"]
+client_id = "websubhub-consolidator"
+dial_timeout = "10s"
+request_timeout_overhead = "30s"
+default_replication_factor = -1
+
+[message_store.kafka.tls]
+enabled = true
+ca_file = "/run/secrets/kafka-ca.crt"
+certificate_file = "/run/secrets/kafka-consolidator.crt"
+private_key_file = "/run/secrets/kafka-consolidator.key"
+server_name = ""
+insecure_skip_verify = false
+
+[message_store.kafka.sasl]
+mechanism = ""
+username = ""
+password_file = ""

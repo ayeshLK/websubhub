@@ -1,0 +1,12 @@
+.git
+.github
+.agents
+.codex
+bin
+dist
+deploy/compose/.generated
+*.md
+!LICENSE
+!NOTICE
+coverage.*
+profile.cov
