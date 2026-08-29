@@ -207,14 +207,16 @@ docker run --rm ayeshalmeida/websubhub-consolidator:0.5.0 --version
 These commands become available when `v0.5.0` is published; the repository has
 not yet published that preview. Runtime deployments must mount the appropriate
 configuration and secret files and provide Kafka/network connectivity. Images
-run as non-root and intentionally contain only their component application binary.
+run as non-root and intentionally contain only their component application
+binary.
 
 Release assets include SHA-256 checksums, per-archive SPDX JSON SBOMs, keyless
 Sigstore signatures, and provenance attestations. Initial macOS and Windows
 artifacts do not have native platform signing; that roadmap item is tracked in
 [issue #7](https://github.com/ayeshLK/websubhub/issues/7). See the
-[release guide](docs/releasing.md) for artifact names, verification commands,
-local dry runs, and the maintainer publication checklist.
+[installation and deployment guide](docs/installing.md) for binary and
+container usage. Maintainers should use the [release guide](docs/releasing.md)
+for local dry runs and the publication checklist.
 
 ## Test
 
@@ -310,6 +312,7 @@ cmd/                              service entry points
 configs/                          process-specific configuration examples
 deploy/compose/                   local Kafka preview topology
 docs/architecture/decisions/     accepted ADRs and open gates
+docs/installing.md                release installation and deployment guide
 packaging/                        per-component release contents
 scripts/                          release layout verification
 internal/app/                     composition roots and protocol adapter

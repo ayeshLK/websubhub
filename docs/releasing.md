@@ -133,6 +133,10 @@ gh attestation verify oci://docker.io/ayeshalmeida/websubhub:0.5.0 \
 Repeat verification for the consolidator. Production deployments should pin
 image digests, not tags.
 
+The operator-facing [installation and deployment guide](installing.md) covers
+archive selection, configuration placement, process startup order, and
+container hardening. Keep it aligned whenever the release contract changes.
+
 ## Deferred native signing
 
 Initial releases are not Apple Developer ID signed/notarized and do not carry

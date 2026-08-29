@@ -35,5 +35,7 @@ lockstep product version. The hub-to-consolidator connection should use mTLS;
 Verify this archive against the release checksum file before extraction, then
 verify the checksum Sigstore bundle or GitHub provenance attestation as
 described in the repository
-[release guide](https://github.com/ayeshLK/websubhub/blob/main/docs/releasing.md).
+[verification guide](https://github.com/ayeshLK/websubhub/blob/main/docs/releasing.md#consumer-verification).
+The [installation guide](https://github.com/ayeshLK/websubhub/blob/main/docs/installing.md)
+covers configuration placement, startup order, and container deployment.
 The initial preview is not Apple-notarized or Authenticode-signed.
