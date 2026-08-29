@@ -4,7 +4,9 @@
 .codex
 bin
 dist
-deploy/compose/.generated
+deploy/compose/.generated/*
+!deploy/compose/.generated/bin
+!deploy/compose/.generated/bin/*
 *.md
 !LICENSE
 !NOTICE

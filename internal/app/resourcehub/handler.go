@@ -29,6 +29,7 @@ import (
 
 	"github.com/ayeshLK/websubhub/internal/config"
 	"github.com/ayeshLK/websubhub/internal/persistence"
+	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/ayeshLK/websubhub/internal/security/auth"
 	"github.com/ayeshLK/websubhub/internal/state"
 )
@@ -63,6 +64,10 @@ type ContentSink interface {
 	Persist(context.Context, ContentUpdate) error
 }
 
+type SubscriptionValidator interface {
+	ValidateSubscription(context.Context, messagestore.Destination, messagestore.SubscriptionOptions) error
+}
+
 type CallbackPolicy interface {
 	ValidateURL(context.Context, string) error
 }
@@ -79,6 +84,7 @@ type Dependencies struct {
 	Callbacks          CallbackPolicy
 	Authorization      Authorizer
 	Content            ContentSink
+	Subscriptions      SubscriptionValidator
 	VerificationClient *http.Client
 	Now                func() time.Time
 	NewEventID         func() (string, error)
@@ -90,8 +96,8 @@ type Handler struct {
 }
 
 func New(cfg config.HubConfig, dependencies Dependencies) (*Handler, error) {
-	if dependencies.Events == nil || dependencies.Projection == nil || dependencies.Secrets == nil || dependencies.Callbacks == nil || dependencies.Authorization == nil || dependencies.VerificationClient == nil {
-		return nil, errors.New("state events, projection, secret sealer, callback policy, authorization, and verification HTTP client are required")
+	if dependencies.Events == nil || dependencies.Projection == nil || dependencies.Secrets == nil || dependencies.Callbacks == nil || dependencies.Authorization == nil || dependencies.Subscriptions == nil || dependencies.VerificationClient == nil {
+		return nil, errors.New("state events, projection, secret sealer, callback policy, authorization, subscription validator, and verification HTTP client are required")
 	}
 	if cfg.Server.ID == "" {
 		return nil, errors.New("server ID is required")
@@ -110,6 +116,7 @@ func New(cfg config.HubConfig, dependencies Dependencies) (*Handler, error) {
 		callbacks:     dependencies.Callbacks,
 		authorization: dependencies.Authorization,
 		content:       dependencies.Content,
+		subscriptions: dependencies.Subscriptions,
 		now:           dependencies.Now,
 		newEventID:    dependencies.NewEventID,
 	}
@@ -148,6 +155,7 @@ type adapter struct {
 	callbacks     CallbackPolicy
 	authorization Authorizer
 	content       ContentSink
+	subscriptions SubscriptionValidator
 	now           func() time.Time
 	newEventID    func() (string, error)
 }
@@ -254,13 +262,25 @@ func (a *adapter) validateSubscription(ctx context.Context, subscription websubh
 		return &websubhub.DeniedError{Reason: "callback destination is not allowed"}
 	}
 	snapshot := a.projection.Snapshot()
-	if !topicIsActive(snapshot, subscription.Topic) {
+	topicID, err := persistence.TopicID(subscription.Topic)
+	if err != nil {
+		return &websubhub.DeniedError{Reason: "topic is not registered"}
+	}
+	topic, ok := snapshot.Topics[topicID]
+	if !ok || topic.Status != state.TopicActive || topic.CanonicalURL != subscription.Topic {
 		return &websubhub.DeniedError{Reason: "topic is not registered"}
 	}
 	if _, ok := currentSubscription(snapshot, subscription.Topic, subscription.Callback); ok {
 		return &websubhub.DeniedError{Reason: "subscription already exists"}
 	}
-	return nil
+	options, err := messagestore.NewSubscriptionOptions(subscription.Parameters)
+	if err == nil {
+		err = a.subscriptions.ValidateSubscription(ctx, messagestore.Destination(topic.ContentDestination), options)
+	}
+	if reason, permanent := messagestore.PermanentSubscriptionReason(err); permanent {
+		return &websubhub.DeniedError{Reason: reason}
+	}
+	return err
 }
 
 func (a *adapter) subscriptionVerified(ctx context.Context, verified websubhub.VerifiedSubscription, _ websubhub.RequestMetadata) error {
@@ -291,6 +311,10 @@ func (a *adapter) subscriptionVerified(ctx context.Context, verified websubhub.V
 			return errors.New("secret sealer returned incomplete protected material")
 		}
 	}
+	options, err := messagestore.NewSubscriptionOptions(verified.Parameters)
+	if err != nil {
+		return errors.New("validated subscription options are invalid")
+	}
 	meta, err := a.metadata("subscriber", actorID)
 	if err != nil {
 		return err
@@ -301,6 +325,7 @@ func (a *adapter) subscriptionVerified(ctx context.Context, verified websubhub.V
 		SecretKeyID: keyID, LeaseStartedAt: verified.LeaseStartedAt.UTC(),
 		EffectiveLeaseSeconds: verified.EffectiveLeaseSeconds,
 		ServerID:              a.serverID, ConsumerID: string(consumerID),
+		Parameters: options.Parameters,
 	}})
 }
 

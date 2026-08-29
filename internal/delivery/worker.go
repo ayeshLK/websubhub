@@ -111,12 +111,22 @@ func (w *Worker) Run(ctx context.Context) error {
 		cancel()
 	}
 	defer cancel()
+	options, err := messagestore.NewSubscriptionOptions(w.subscription.Parameters)
+	if err != nil {
+		return w.markStale(ctx, "message_store_subscription_invalid")
+	}
+	spec := messagestore.ConsumerSpec{
+		ID: messagestore.ConsumerID(w.subscription.ConsumerID), Destination: messagestore.Destination(w.topic.ContentDestination),
+		StartPosition: messagestore.StartLatest, Subscription: &options,
+	}
 	var consumer messagestore.Consumer
 	for {
-		var err error
-		consumer, err = w.deps.Administrator.OpenConsumer(ctx, messagestore.ConsumerSpec{ID: messagestore.ConsumerID(w.subscription.ConsumerID), Destination: messagestore.Destination(w.topic.ContentDestination), StartPosition: messagestore.StartLatest})
+		consumer, err = w.deps.Administrator.OpenConsumer(ctx, spec)
 		if err == nil {
 			break
+		}
+		if _, permanent := messagestore.PermanentSubscriptionReason(err); permanent {
+			return w.markStale(ctx, "message_store_subscription_invalid")
 		}
 		if err := w.deps.Wait(ctx, w.cfg.ReconnectInterval.Value()); err != nil {
 			return err

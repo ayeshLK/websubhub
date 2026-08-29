@@ -145,10 +145,37 @@ func TestSnapshotEncodingIsDeterministicAndStrict(t *testing.T) {
 	if roundTrip.Revision != 2 || roundTrip.Subscriptions["sub-1"].ConsumerID != "consumer-1" {
 		t.Fatalf("round trip = %#v", roundTrip)
 	}
-	if _, err := DecodeSnapshot([]byte(`{"schema_version":2,"revision":0,"topics":[],"subscriptions":[]}`)); err == nil {
+	if _, err := DecodeSnapshot([]byte(`{"schema_version":3,"revision":0,"topics":[],"subscriptions":[]}`)); err == nil {
 		t.Fatal("unknown version accepted")
 	}
-	if _, err := DecodeSnapshot([]byte(`{"schema_version":1,"revision":0,"topics":[],"subscriptions":[],"provider_offset":1}`)); err == nil {
+	if _, err := DecodeSnapshot([]byte(`{"schema_version":2,"revision":0,"topics":[],"subscriptions":[],"provider_offset":1}`)); err == nil {
 		t.Fatal("unknown field accepted")
+	}
+}
+
+func TestSubscriptionParametersAreDurableAndDetached(t *testing.T) {
+	t.Parallel()
+	reducer := Reducer{}
+	snapshot, _, err := reducer.Apply(EmptySnapshot(), topicEvent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := subscriptionEvent()
+	event.Subscription.Parameters = map[string][]string{"kafka.consumer_group": {"workers"}}
+	snapshot, _, err = reducer.Apply(snapshot, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event.Subscription.Parameters["kafka.consumer_group"][0] = "mutated"
+	if snapshot.Subscriptions["sub-1"].Parameters["kafka.consumer_group"][0] != "workers" {
+		t.Fatalf("snapshot parameters=%#v", snapshot.Subscriptions["sub-1"].Parameters)
+	}
+	encoded, err := EncodeSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeSnapshot(encoded)
+	if err != nil || decoded.Subscriptions["sub-1"].Parameters["kafka.consumer_group"][0] != "workers" {
+		t.Fatalf("decoded=%#v err=%v", decoded, err)
 	}
 }

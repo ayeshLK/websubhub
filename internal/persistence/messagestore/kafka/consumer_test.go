@@ -260,7 +260,7 @@ func fetchPositions(fetches kgo.Fetches) map[string]map[int32]kgo.EpochOffset {
 
 func testConsumer(client consumerClient, producer messagestore.Producer, admin adminClient) *Consumer {
 	spec := messagestore.ConsumerSpec{ID: "consumer-1", Destination: "events", StartPosition: messagestore.StartEarliest}
-	return &Consumer{spec: spec, metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, client: client, producer: producer, admin: admin, established: make(map[int32]kgo.EpochOffset)}
+	return &Consumer{spec: spec, metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, client: client, producer: producer, admin: admin, group: groupName(spec.ID), established: make(map[int32]kgo.EpochOffset)}
 }
 
 func storedRecord(t *testing.T, id string, offset int64) *kgo.Record {

@@ -27,11 +27,14 @@ mkdir -p "$generated_dir/bin"
   CGO_ENABLED=0 go build -trimpath -o "$generated_dir/bin/websubhub-fixture" ./test/fixture
 )
 
-if [ ! -s "$generated_dir/ca.crt" ]; then
+regenerate_fixture=false
+if [ ! -s "$generated_dir/ca.crt" ] || ! openssl x509 -checkend 86400 -noout -in "$generated_dir/ca.crt" >/dev/null 2>&1; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=WebSubHub Compose CA' \
     -keyout "$generated_dir/ca.key" -out "$generated_dir/ca.crt"
+  regenerate_fixture=true
 fi
-if [ ! -s "$generated_dir/fixture.crt" ]; then
+if [ "$regenerate_fixture" = true ] || [ ! -s "$generated_dir/fixture.crt" ] || \
+  ! openssl x509 -checkend 86400 -noout -in "$generated_dir/fixture.crt" >/dev/null 2>&1; then
   openssl req -newkey rsa:2048 -nodes -subj '/CN=fixture' \
     -keyout "$generated_dir/fixture.key" -out "$generated_dir/fixture.csr"
   printf '%s\n' 'subjectAltName=DNS:fixture,DNS:localhost' 'extendedKeyUsage=serverAuth' > "$generated_dir/fixture.ext"

@@ -153,6 +153,8 @@ func (s *subscriber) ServeHTTP(response http.ResponseWriter, request *http.Reque
 		s.control(response, request)
 	case request.URL.Path == "/received":
 		s.received(response, request)
+	case request.URL.Path == "/reset":
+		s.reset(response, request)
 	case strings.HasPrefix(request.URL.Path, "/callback-"):
 		s.callback(response, request)
 	default:
@@ -182,6 +184,17 @@ func (s *subscriber) received(response http.ResponseWriter, request *http.Reques
 	s.mu.Unlock()
 	response.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(response).Encode(result)
+}
+
+func (s *subscriber) reset(response http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.Lock()
+	s.receipts = make(map[string]receipt)
+	s.mu.Unlock()
+	response.WriteHeader(http.StatusNoContent)
 }
 
 func (s *subscriber) callback(response http.ResponseWriter, request *http.Request) {

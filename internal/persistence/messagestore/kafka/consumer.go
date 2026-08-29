@@ -47,34 +47,59 @@ type pendingRecord struct {
 }
 
 type Consumer struct {
-	mu           sync.Mutex
-	assignmentMu sync.RWMutex
-	config       Config
-	spec         messagestore.ConsumerSpec
-	metadata     messagestore.ConsumerMetadata
-	client       consumerClient
-	producer     messagestore.Producer
-	admin        adminClient
-	pending      []pendingRecord
-	nextReceipt  uint64
-	delivered    int
-	notBefore    time.Time
-	closed       bool
-	permanent    bool
-	assigned     map[int32]struct{}
-	established  map[int32]kgo.EpochOffset
-	assignedOnce chan struct{}
+	mu               sync.Mutex
+	assignmentMu     sync.RWMutex
+	config           Config
+	spec             messagestore.ConsumerSpec
+	metadata         messagestore.ConsumerMetadata
+	client           consumerClient
+	producer         messagestore.Producer
+	admin            adminClient
+	pending          []pendingRecord
+	nextReceipt      uint64
+	delivered        int
+	notBefore        time.Time
+	closed           bool
+	permanent        bool
+	group            string
+	shared           bool
+	directPartitions []int32
+	assigned         map[int32]struct{}
+	established      map[int32]kgo.EpochOffset
+	assignedOnce     chan struct{}
 }
 
-func newConsumer(config Config, spec messagestore.ConsumerSpec, producer messagestore.Producer, admin adminClient) (*Consumer, error) {
-	if spec.ID == "" || spec.Destination == "" {
-		return nil, errors.New("consumer ID and destination are required")
+func newConsumer(ctx context.Context, config Config, spec messagestore.ConsumerSpec, producer messagestore.Producer, admin adminClient) (*Consumer, error) {
+	if err := messagestore.ValidateConsumerSpec(spec); err != nil {
+		return nil, err
 	}
-	if spec.StartPosition != messagestore.StartEarliest && spec.StartPosition != messagestore.StartLatest {
-		return nil, fmt.Errorf("unsupported consumer start position %q", spec.StartPosition)
+	options := messagestore.SubscriptionOptions{}
+	if spec.Subscription != nil {
+		options = spec.Subscription.Clone()
 	}
-	consumer := &Consumer{config: config, spec: spec, established: make(map[int32]kgo.EpochOffset), assignedOnce: make(chan struct{}), metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition}, producer: producer, admin: admin}
-	client, err := consumer.openClient()
+	subscription, err := parseSubscriptionOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	group := groupName(spec.ID)
+	shared := false
+	if subscription.group != "" {
+		group = subscription.group
+		shared = true
+	}
+	consumer := &Consumer{
+		config: config, spec: spec, established: make(map[int32]kgo.EpochOffset),
+		assignedOnce: make(chan struct{}), metadata: messagestore.ConsumerMetadata{ID: spec.ID, Destination: spec.Destination, StartPosition: spec.StartPosition},
+		producer: producer, admin: admin, group: group, shared: shared, directPartitions: subscription.partitions,
+	}
+	if len(subscription.partitions) != 0 {
+		consumer.assigned = make(map[int32]struct{}, len(subscription.partitions))
+		for _, partition := range subscription.partitions {
+			consumer.assigned[partition] = struct{}{}
+		}
+		consumer.assignedOnce = nil
+	}
+	client, err := consumer.openClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -82,29 +107,65 @@ func newConsumer(config Config, spec messagestore.ConsumerSpec, producer message
 	return consumer, nil
 }
 
-func (c *Consumer) openClient() (consumerClient, error) {
+func (c *Consumer) openClient(ctx context.Context) (consumerClient, error) {
 	reset := kgo.NewOffset().AtEnd()
 	if c.spec.StartPosition == messagestore.StartEarliest {
 		reset = kgo.NewOffset().AtStart()
 	}
-	opts := consumerOptions(c.config, c.spec, reset)
-	opts = append(opts, kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assignment map[string][]int32) {
-		c.assignmentMu.Lock()
-		defer c.assignmentMu.Unlock()
-		c.assigned = make(map[int32]struct{})
-		for _, partition := range assignment[string(c.spec.Destination)] {
-			c.assigned[partition] = struct{}{}
+	var direct map[int32]kgo.Offset
+	if len(c.directPartitions) != 0 {
+		var err error
+		direct, err = c.directOffsets(ctx, reset)
+		if err != nil {
+			return nil, err
 		}
-		if c.assignedOnce != nil {
-			close(c.assignedOnce)
-			c.assignedOnce = nil
-		}
-	}))
+	}
+	opts := consumerOptions(c.config, c.spec, reset, c.group, direct)
+	if direct == nil {
+		opts = append(opts, kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assignment map[string][]int32) {
+			c.assignmentMu.Lock()
+			defer c.assignmentMu.Unlock()
+			c.assigned = make(map[int32]struct{})
+			for _, partition := range assignment[string(c.spec.Destination)] {
+				c.assigned[partition] = struct{}{}
+			}
+			if c.assignedOnce != nil {
+				close(c.assignedOnce)
+				c.assignedOnce = nil
+			}
+		}))
+	}
 	return kgo.NewClient(opts...)
 }
 
-func consumerOptions(config Config, spec messagestore.ConsumerSpec, reset kgo.Offset) []kgo.Opt {
-	return append(config.commonOptions(), kgo.ConsumerGroup(groupName(spec.ID)), kgo.ConsumeTopics(string(spec.Destination)), kgo.ConsumeResetOffset(reset), kgo.DisableAutoCommit(), kgo.BlockRebalanceOnPoll())
+func (c *Consumer) directOffsets(ctx context.Context, reset kgo.Offset) (map[int32]kgo.Offset, error) {
+	committed, err := c.admin.FetchOffsets(ctx, c.group)
+	if err != nil && !errors.Is(err, kerr.GroupIDNotFound) {
+		return nil, err
+	}
+	offsets := make(map[int32]kgo.Offset, len(c.directPartitions))
+	for _, partition := range c.directPartitions {
+		offset := reset
+		if response, ok := committed.Lookup(string(c.spec.Destination), partition); ok {
+			if response.Err != nil {
+				return nil, response.Err
+			}
+			if response.At >= 0 {
+				offset = kgo.NewOffset().At(response.At)
+			}
+		}
+		offsets[partition] = offset
+	}
+	return offsets, nil
+}
+
+func consumerOptions(config Config, spec messagestore.ConsumerSpec, reset kgo.Offset, group string, direct map[int32]kgo.Offset) []kgo.Opt {
+	opts := config.commonOptions()
+	if direct != nil {
+		return append(opts, kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{string(spec.Destination): direct}))
+	}
+	opts = append(opts, kgo.DisableAutoCommit(), kgo.BlockRebalanceOnPoll())
+	return append(opts, kgo.ConsumerGroup(group), kgo.ConsumeTopics(string(spec.Destination)), kgo.ConsumeResetOffset(reset))
 }
 
 func (c *Consumer) Metadata() messagestore.ConsumerMetadata { return c.metadata }
@@ -249,9 +310,10 @@ func (c *Consumer) CaughtUp(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	var committed map[string]map[int32]kgo.EpochOffset
-	for partition, end := range partitions {
-		if _, ok := assigned[partition]; !ok {
-			return false, nil
+	for partition := range assigned {
+		end, ok := partitions[partition]
+		if !ok {
+			return false, errors.New("Kafka returned no end offset for assigned partition")
 		}
 		position, ok := positions[string(c.spec.Destination)][partition]
 		if !ok || position.Offset < 0 {
@@ -324,6 +386,19 @@ func (c *Consumer) appendFetched(fetches kgo.Fetches) error {
 	return nil
 }
 
+func (c *Consumer) commitRecord(ctx context.Context, record *kgo.Record) error {
+	if len(c.directPartitions) == 0 {
+		return c.client.CommitRecords(ctx, record)
+	}
+	var offsets kadm.Offsets
+	offsets.AddOffset(record.Topic, record.Partition, record.Offset+1, record.LeaderEpoch)
+	responses, err := c.admin.CommitOffsets(ctx, c.group, offsets)
+	if err != nil {
+		return err
+	}
+	return responses.Error()
+}
+
 func (c *Consumer) Ack(ctx context.Context, receipt messagestore.Receipt) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -333,7 +408,7 @@ func (c *Consumer) Ack(ctx context.Context, receipt messagestore.Receipt) error 
 	if len(c.pending) == 0 || receipt != c.pending[0].receipt {
 		return messagestore.ErrOutOfOrder
 	}
-	if err := c.client.CommitRecords(ctx, c.pending[0].record); err != nil {
+	if err := c.commitRecord(ctx, c.pending[0].record); err != nil {
 		return err
 	}
 	c.advanceEstablished(c.pending[0].record)
@@ -388,7 +463,7 @@ func (c *Consumer) DeadLetter(ctx context.Context, receipt messagestore.Receipt,
 	if err := c.producer.Send(ctx, record.Destination, record.Message); err != nil {
 		return err
 	}
-	if err := c.client.CommitRecords(ctx, c.pending[0].record); err != nil {
+	if err := c.commitRecord(ctx, c.pending[0].record); err != nil {
 		return err
 	}
 	c.advanceEstablished(c.pending[0].record)
@@ -402,15 +477,23 @@ func (c *Consumer) DeadLetter(ctx context.Context, receipt messagestore.Receipt,
 	return nil
 }
 
-func (c *Consumer) Reconnect(context.Context) error {
+func (c *Consumer) Reconnect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.permanent {
 		return messagestore.ErrClosed
 	}
 	c.assignmentMu.Lock()
-	c.assigned = nil
-	c.assignedOnce = make(chan struct{})
+	if len(c.directPartitions) == 0 {
+		c.assigned = nil
+		c.assignedOnce = make(chan struct{})
+	} else {
+		c.assigned = make(map[int32]struct{}, len(c.directPartitions))
+		for _, partition := range c.directPartitions {
+			c.assigned[partition] = struct{}{}
+		}
+		c.assignedOnce = nil
+	}
 	c.assignmentMu.Unlock()
 	c.established = make(map[int32]kgo.EpochOffset)
 	if c.client != nil {
@@ -420,7 +503,7 @@ func (c *Consumer) Reconnect(context.Context) error {
 		c.client.AllowRebalance()
 		c.client.Close()
 	}
-	client, err := c.openClient()
+	client, err := c.openClient(ctx)
 	if err != nil {
 		c.closed = true
 		return err
@@ -445,14 +528,18 @@ func (c *Consumer) Close(ctx context.Context, intent messagestore.ClosureIntent)
 		c.client.Close()
 		c.closed = true
 	}
-	if intent == messagestore.ClosePermanent {
-		_, err := c.admin.DeleteGroup(ctx, groupName(c.spec.ID))
-		if err == nil {
-			c.permanent = true
-		}
-		return err
+	if intent != messagestore.ClosePermanent {
+		return nil
 	}
-	return nil
+	if c.shared {
+		c.permanent = true
+		return nil
+	}
+	_, err := c.admin.DeleteGroup(ctx, c.group)
+	if err == nil {
+		c.permanent = true
+	}
+	return err
 }
 
 func groupName(id messagestore.ConsumerID) string {

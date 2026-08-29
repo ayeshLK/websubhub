@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 )
 
 type snapshotWire struct {
@@ -100,6 +102,9 @@ func validateSnapshot(snapshot Snapshot) error {
 		}
 		if subscription.Status != SubscriptionActive && subscription.Status != SubscriptionStale && subscription.Status != SubscriptionRemoved {
 			return fmt.Errorf("subscription %q has invalid status", id)
+		}
+		if _, err := messagestore.NewSubscriptionOptions(subscription.Parameters); err != nil {
+			return fmt.Errorf("subscription %q has invalid options", id)
 		}
 		if subscription.Revision > snapshot.Revision {
 			return fmt.Errorf("subscription %q revision exceeds snapshot", id)

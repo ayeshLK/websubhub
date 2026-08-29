@@ -41,7 +41,13 @@ func TestAdministratorValidatesExistingDestination(t *testing.T) {
 
 func TestAdministratorCreatesMissingDestination(t *testing.T) {
 	t.Parallel()
-	fake := &fakeAdminClient{details: kadm.TopicDetails{}, created: kadm.CreateTopicResponses{"snapshots": {Topic: "snapshots"}}}
+	cleanup := "compact"
+	fake := &fakeAdminClient{
+		details:     kadm.TopicDetails{},
+		created:     kadm.CreateTopicResponses{"snapshots": {Topic: "snapshots"}},
+		afterCreate: kadm.TopicDetails{"snapshots": {Topic: "snapshots", Partitions: kadm.PartitionDetails{0: {Partition: 0}}}},
+		resources:   kadm.ResourceConfigs{{Name: "snapshots", Configs: []kadm.Config{{Key: "cleanup.policy", Value: &cleanup}}}},
+	}
 	administrator := &Administrator{config: Config{DefaultReplicationFactor: 1}, admin: fake}
 	if err := administrator.EnsureDestination(t.Context(), messagestore.DestinationSpec{Name: "snapshots", Partitions: 1, Compacted: true}); err != nil {
 		t.Fatal(err)

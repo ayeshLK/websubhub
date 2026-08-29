@@ -19,6 +19,9 @@ package messagestore
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
+	"slices"
 	"time"
 )
 
@@ -119,11 +122,99 @@ type ConsumerSpec struct {
 	ID            ConsumerID
 	Destination   Destination
 	StartPosition StartPosition
+	Subscription  *SubscriptionOptions
+}
+
+const (
+	MaxSubscriptionOptionKeys       = 32
+	MaxSubscriptionOptionKeyBytes   = 128
+	MaxSubscriptionOptionValues     = 8
+	MaxSubscriptionOptionValueBytes = 1024
+	MaxSubscriptionOptionsBytes     = 8192
+)
+
+// SubscriptionOptions is bounded product context for a WebSub delivery
+// consumer. It contains no callback, secret, authorization, or provider
+// credential fields.
+type SubscriptionOptions struct {
+	Parameters map[string][]string
+}
+
+// PermanentSubscriptionError reports subscriber-correctable options without
+// placing the safe public reason in generic error strings or provider logs.
+type PermanentSubscriptionError struct {
+	Reason string
+}
+
+func (*PermanentSubscriptionError) Error() string { return "invalid subscription options" }
+
+func NewSubscriptionOptions(parameters map[string][]string) (SubscriptionOptions, error) {
+	if len(parameters) > MaxSubscriptionOptionKeys {
+		return SubscriptionOptions{}, &PermanentSubscriptionError{Reason: "too many subscription options"}
+	}
+	cloned := make(map[string][]string, len(parameters))
+	total := 0
+	for key, values := range parameters {
+		if key == "" || len(key) > MaxSubscriptionOptionKeyBytes {
+			return SubscriptionOptions{}, &PermanentSubscriptionError{Reason: "invalid subscription option name"}
+		}
+		if len(values) > MaxSubscriptionOptionValues {
+			return SubscriptionOptions{}, &PermanentSubscriptionError{Reason: "too many subscription option values"}
+		}
+		total += len(key)
+		cloned[key] = slices.Clone(values)
+		for _, value := range values {
+			if len(value) > MaxSubscriptionOptionValueBytes {
+				return SubscriptionOptions{}, &PermanentSubscriptionError{Reason: "subscription option value is too long"}
+			}
+			total += len(value)
+		}
+	}
+	if total > MaxSubscriptionOptionsBytes {
+		return SubscriptionOptions{}, &PermanentSubscriptionError{Reason: "subscription options are too large"}
+	}
+	if len(cloned) == 0 {
+		cloned = nil
+	}
+	return SubscriptionOptions{Parameters: cloned}, nil
+}
+
+func (o SubscriptionOptions) Clone() SubscriptionOptions {
+	clone := SubscriptionOptions{Parameters: maps.Clone(o.Parameters)}
+	for key, values := range clone.Parameters {
+		clone.Parameters[key] = slices.Clone(values)
+	}
+	return clone
+}
+
+func PermanentSubscriptionReason(err error) (string, bool) {
+	var permanent *PermanentSubscriptionError
+	if !errors.As(err, &permanent) {
+		return "", false
+	}
+	if permanent.Reason == "" {
+		return "", true
+	}
+	if len(permanent.Reason) > 256 {
+		return "", true
+	}
+	return permanent.Reason, true
 }
 
 type Administrator interface {
 	EnsureDestination(context.Context, DestinationSpec) error
+	ValidateSubscription(context.Context, Destination, SubscriptionOptions) error
 	OpenConsumer(context.Context, ConsumerSpec) (Consumer, error)
 	Capabilities(context.Context) (Capabilities, error)
 	Close(context.Context) error
+}
+
+func ValidateConsumerSpec(spec ConsumerSpec) error {
+	if spec.ID == "" || spec.Destination == "" {
+		return errors.New("consumer ID and destination are required")
+	}
+	if spec.StartPosition != StartEarliest && spec.StartPosition != StartLatest {
+		return fmt.Errorf("unsupported consumer start position %q", spec.StartPosition)
+	}
+	return nil
 }
