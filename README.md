@@ -247,15 +247,14 @@ Run the appropriate level of validation:
 |---|---|
 | `make test` | Shuffled Go unit and package tests |
 | `make check` | Formatting, generated drift, source headers, vet, shuffled tests, race detector, dependency licenses, and documentation links |
-| Kafka conformance command below | Provider contract against a real Kafka broker |
+| `make test-integration-kafka` | Kafka provider contract and provider-specific behavior against a real broker |
 | `make compose-smoke` | Full two-hub Kafka acceptance topology |
 
-Run the Kafka provider conformance suite against an existing broker:
+Run the complete Kafka provider integration suite against an existing broker:
 
 ```sh
 WEBSUBHUB_TEST_KAFKA_BROKERS=127.0.0.1:9092 \
-  go test -v -run '^TestKafkaConformance$' \
-  ./internal/persistence/messagestore/kafka
+  make test-integration-kafka
 ```
 
 For focused development, standard Go tooling also works:
@@ -267,7 +266,7 @@ go vet ./...
 ```
 
 CI tests the configured Go version matrix and additionally runs Kafka provider
-conformance, vulnerability scanning, and secret scanning. Third-party GitHub
+integration, vulnerability scanning, and secret scanning. Third-party GitHub
 Actions are pinned to immutable commit SHAs.
 
 ## Configuration
