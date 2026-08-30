@@ -3,10 +3,15 @@
 WebSubHub releases `websubhub` and `websubhub-consolidator` independently under
 one lockstep semantic version. This guide covers the `v0.5.x` developer-preview
 contract accepted in
-[ADR 0018](architecture/decisions/0018-release-distribution.md).
+[ADR 0018](architecture/decisions/0018-release-distribution.md) and the automated
+release authority accepted in
+[ADR 0020](architecture/decisions/0020-automated-release-authority.md).
 
-Ordinary branch and pull-request workflows cannot publish. A strict `vX.Y.Z`
-tag on a commit contained in `main` starts the protected release workflow.
+Maintainers do not invent or push release tags. `release.properties` declares
+the reviewed development or release version. The `Prepare release` workflow
+opens the stable-version pull request, and the protected `Release` workflow
+verifies that merged version, creates the annotated tag, publishes the release,
+and proposes the next patch snapshot.
 
 ## Published artifacts
 
@@ -41,18 +46,37 @@ signatures.
 
 Before the first release, a repository administrator must:
 
-1. Create `ayeshalmeida/websubhub` and
-   `ayeshalmeida/websubhub-consolidator` as public Docker Hub repositories.
-2. Create a scoped Docker Hub access token with write access to those
-   repositories and store it as the GitHub Actions secret `DOCKERHUB_TOKEN`.
-3. Create and protect the GitHub environment named `release`; require an
-   appropriate reviewer and restrict deployment to release tags.
-4. Protect `v*` tags from deletion or unauthorized updates.
-5. Confirm GitHub OIDC is available for keyless signing and attestations.
+1. Confirm `ayeshalmeida/websubhub` and
+   `ayeshalmeida/websubhub-consolidator` are public Docker Hub repositories.
+2. Store a scoped Docker Hub access token with write access to both repositories
+   as the `DOCKERHUB_TOKEN` secret in the GitHub `release` environment.
+3. Protect the GitHub environment named `release`, require an appropriate
+   reviewer, and restrict deployment to the `main` branch.
+4. Enable **Allow GitHub Actions to create and approve pull requests** so the
+   narrowly scoped release jobs can open preparation and next-development pull
+   requests. The workflows never approve those pull requests.
+5. Protect `v*` tags from manual deletion or updates while allowing the
+   protected release workflow to create new tags.
+6. Confirm GitHub OIDC is available for keyless signing and attestations.
 
 The Docker Hub username is fixed in the workflow as `ayeshalmeida`; it is not
 a configurable secret. Do not store passwords, private signing keys, or
 long-lived GitHub tokens in the repository.
+
+## Version lifecycle
+
+The root `release.properties` file is the reviewed version declaration:
+
+- `version=X.Y.Z-SNAPSHOT` means development toward `X.Y.Z`;
+- the Prepare release workflow opens a pull request changing it to `X.Y.Z`;
+- the Release workflow publishes exactly `vX.Y.Z`;
+- successful publication opens a pull request for `X.Y.(Z+1)-SNAPSHOT`.
+
+The first declaration is `0.5.0-SNAPSHOT`. Only strict stable `vX.Y.Z` tags
+are comparison bases, and the declared candidate must be newer than the latest
+one. To begin a minor or major line, change the snapshot through a normal pull
+request before preparing the release. The parser, transitions, and invalid
+cases run as part of `make check`.
 
 ## Local dry run
 
@@ -72,27 +96,34 @@ signing. The container check builds both production targets and executes their
 
 ## Publishing checklist
 
-1. Confirm `main` CI passes, the worktree is clean, and release notes state
-   preview limitations, at-least-once duplicate windows, and upgrade impact.
+1. Confirm `main` contains the intended `X.Y.Z-SNAPSHOT`, CI passes, and
+   [the preview disclosure](../.github/release-notes/developer-preview.md)
+   accurately states limitations, at-least-once duplicate windows, and upgrade
+   impact.
 2. Run the local dry run with the pinned tool versions.
-3. Confirm both Docker Hub repositories are public and the scoped token works.
-4. Confirm the protected `release` environment is active.
-5. Create and push an annotated, preferably signed, tag from the intended
-   `main` commit:
-
-   ```sh
-   git tag -s v0.5.0 -m "WebSubHub v0.5.0"
-   git push origin v0.5.0
-   ```
-
-6. Approve the protected deployment after verification passes.
-7. Confirm both image digests and all release assets, signatures, SBOMs, and
+3. Open **Actions → Prepare release → Run workflow** and select `main`. Do not
+   enter a version; the workflow reads `release.properties`.
+4. Approve the generated pull request CI, review the one-line change from
+   `X.Y.Z-SNAPSHOT` to `X.Y.Z`, and merge it after all checks pass.
+5. Confirm both Docker Hub repositories are public, the scoped token works, the
+   protected `release` environment allows `main`, and the `v*` tag rules are
+   active.
+6. Open **Actions → Release → Run workflow**, select `main`, and start it without
+   entering a version.
+7. Review the declared tag and exact source commit in the verification summary.
+   Do not approve an unexpected candidate.
+8. Approve the protected `release` environment after verification passes.
+9. Confirm both image digests and all release assets, signatures, SBOMs, and
    attestations exist. The workflow publishes the GitHub draft only after both
    container publications succeed.
+10. Approve CI on the generated next-development pull request, verify its patch
+    increment, and merge it.
 
-Do not reuse a version tag after failure. Diagnose the draft and partial
-registry state, fix the source, and release a new patch version. Never move an
-already published tag.
+Do not manually create a release tag. Do not reuse or move a version tag after
+failure. Diagnose the draft and partial registry state, fix the source, and use
+a reviewed property change plus the preparation workflow to consume the next
+unused version. If publication succeeds but the next-development pull request
+fails, create that same patch-snapshot change through a normal pull request.
 
 ## Consumer verification
 
@@ -103,13 +134,13 @@ the archive checksum first:
 sha256sum --check websubhub_0.5.0_checksums.txt --ignore-missing
 ```
 
-Verify the bundle against the exact workflow identity:
+Verify the bundle against the protected workflow identity:
 
 ```sh
 cosign verify-blob \
   --bundle websubhub_0.5.0_checksums.txt.sigstore.json \
   --certificate-identity \
-    'https://github.com/ayeshLK/websubhub/.github/workflows/release.yml@refs/tags/v0.5.0' \
+    'https://github.com/ayeshLK/websubhub/.github/workflows/release.yml@refs/heads/main' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   websubhub_0.5.0_checksums.txt
 
@@ -122,7 +153,7 @@ Verify a container signature and provenance similarly:
 ```sh
 cosign verify \
   --certificate-identity \
-    'https://github.com/ayeshLK/websubhub/.github/workflows/release.yml@refs/tags/v0.5.0' \
+    'https://github.com/ayeshLK/websubhub/.github/workflows/release.yml@refs/heads/main' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   docker.io/ayeshalmeida/websubhub:0.5.0
 
@@ -131,7 +162,8 @@ gh attestation verify oci://docker.io/ayeshalmeida/websubhub:0.5.0 \
 ```
 
 Repeat verification for the consolidator. Production deployments should pin
-image digests, not tags.
+image digests, not tags. The certificate and attestation bind the exact source
+revision even though the stable workflow identity names `main`.
 
 The operator-facing [installation and deployment guide](installing.md) covers
 archive selection, configuration placement, process startup order, and

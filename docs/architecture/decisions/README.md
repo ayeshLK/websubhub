@@ -22,6 +22,7 @@ tests, configuration, and release claims.
 - [ADR 0017: Internal management query API](0017-internal-management-query-api.md)
 - [ADR 0018: Lockstep component releases and distribution](0018-release-distribution.md)
 - [ADR 0019: Validate and retain MessageStore subscription options](0019-subscription-context-message-store-consumers.md)
+- [ADR 0020: Automated release authority](0020-automated-release-authority.md)
 - [Open implementation gates](open-gates.md)
 
 Persisted-schema changes require an explicit replacement ADR, offline migration

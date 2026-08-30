@@ -9,14 +9,14 @@ LDFLAGS = -s -w \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.commit=$(COMMIT) \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.date=$(BUILD_DATE)
 
-.PHONY: build check compose-smoke container-check docs-check format-check source-header-check generate-check license-check release-check release-snapshot test test-integration-kafka
+.PHONY: build check compose-smoke container-check docs-check format-check source-header-check generate-check license-check release-check release-snapshot release-version-check test test-integration-kafka
 
 build:
 	mkdir -p bin
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/websubhub ./cmd/websubhub
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/websubhub-consolidator ./cmd/websubhub-consolidator
 
-check: format-check generate-check source-header-check
+check: format-check generate-check source-header-check release-version-check
 	$(GO) vet ./...
 	$(GO) test -shuffle=on ./...
 	$(GO) test -race ./...
@@ -38,6 +38,9 @@ license-check:
 
 docs-check:
 	$(GO) run ./internal/tools/doclinks
+
+release-version-check:
+	sh scripts/verify-release-version.sh
 
 test:
 	$(GO) test -shuffle=on ./...
