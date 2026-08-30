@@ -36,7 +36,7 @@ WebSubHub puts an HTTP-native boundary around those broker responsibilities:
 - accepted content is persisted before durable acceptance is returned;
 - by default, each subscription owns independent delivery progress and retry behavior;
 - provider details remain behind a capability-aware MessageStore contract;
-- callback SSRF controls, JWT authorization, secret protection, health, and
+- callback SSRF controls, explicit none/JWT authorization modes, secret protection, health, and
   diagnostics are product responsibilities rather than application glue.
 
 Delivery is deliberately **at least once**. Subscribers must handle duplicates
@@ -77,8 +77,8 @@ The current implementation provides:
   removal, and durable dead-letter handling;
 - stable hub ownership so two hubs project all state while only the recorded
   owner delivers a subscription;
-- JWT/JWKS authentication and scope authorization for public mutations and
-  protected operations;
+- explicit `none` or `jwt` authentication modes for the public and
+  operations listeners, with JWT/JWKS scope authorization in secured mode;
 - callback policy enforcement at admission and DNS/IP dial time, redirect
   refusal, and bounded HTTP behavior;
 - AES-256-GCM encryption of persisted subscription secrets;
@@ -274,7 +274,8 @@ Actions are pinned to immutable commit SHAs.
 WebSubHub uses two strict configuration roots:
 
 - [`configs/websubhub.example.toml`](configs/websubhub.example.toml) configures
-  the public and operations listeners, stable server ID, JWT policy, callback
+  the public and operations listeners, stable server ID, explicit authentication
+  modes, JWT policy, callback
   safety, subscription-secret provider, state projection, consolidator client,
   delivery, and Kafka MessageStore.
 - [`configs/websubhub-consolidator.example.toml`](configs/websubhub-consolidator.example.toml)
@@ -305,12 +306,12 @@ on the separate `operations.listen` listener:
 |---|---|---|
 | `GET /health/live` | None | Process liveness |
 | `GET /health/ready` | None | Bounded state-projection readiness |
-| `GET /v1/system/capabilities` | JWT operations scope | Effective provider and preview capabilities |
-| `GET /v1/topics` | JWT operations scope | Bounded canonical topic summaries |
-| `GET /v1/topics/{id}` | JWT operations scope | Safe canonical topic detail |
-| `GET /v1/subscriptions` | JWT operations scope | Bounded canonical subscription summaries |
-| `GET /v1/subscriptions/{id}` | JWT operations scope | Safe canonical subscription detail |
-| `GET /metrics` | JWT operations scope | Prometheus-compatible bounded metrics |
+| `GET /v1/system/capabilities` | `operations.auth`: none or JWT scope | Effective provider and preview capabilities |
+| `GET /v1/topics` | `operations.auth`: none or JWT scope | Bounded canonical topic summaries |
+| `GET /v1/topics/{id}` | `operations.auth`: none or JWT scope | Safe canonical topic detail |
+| `GET /v1/subscriptions` | `operations.auth`: none or JWT scope | Bounded canonical subscription summaries |
+| `GET /v1/subscriptions/{id}` | `operations.auth`: none or JWT scope | Safe canonical subscription detail |
+| `GET /metrics` | `operations.auth`: none or JWT scope | Prometheus-compatible bounded metrics |
 
 The topic and subscription routes are an internal preview contract for a
 future control-plane BFF, not a supported public customer administration API.
@@ -321,9 +322,11 @@ caught up. Consolidator failure returns `503` without a local-projection
 fallback. Collection limits are bounded to 100; cursor pagination is reserved
 but not implemented in v0.5.
 
-Public protocol and operations mutations do not have an unauthenticated mode
-in the preview. Configure an exact issuer, audience, HTTPS JWKS URL, asymmetric
-algorithm allowlist, and operation scopes.
+Both listeners require an explicit `none` or `jwt` authentication mode. The
+packaged developer configuration selects `none`; the production example and
+Compose acceptance topology select `jwt`. JWT mode requires an exact issuer,
+audience, HTTPS JWKS URL, asymmetric algorithm allowlist, and operation scopes.
+There is no fallback from an invalid JWT configuration to unauthenticated mode.
 
 ## Repository layout
 

@@ -20,6 +20,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ayeshLK/websubhub/internal/config"
+	"github.com/ayeshLK/websubhub/internal/security/auth"
+
 	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/ayeshLK/websubhub/internal/state"
 )
@@ -35,6 +38,36 @@ func TestPublicMuxExposesOnlyConfiguredHubPath(t *testing.T) {
 		if response.Code != expected {
 			t.Errorf("path %s status=%d want=%d", path, response.Code, expected)
 		}
+	}
+}
+
+func TestListenerAuthenticationsAreIndependent(t *testing.T) {
+	tests := []struct {
+		name              string
+		publicMode        string
+		operationsMode    string
+		publicAllowed     bool
+		operationsAllowed bool
+	}{
+		{name: "none", publicMode: config.AuthModeNone, operationsMode: config.AuthModeNone, publicAllowed: true, operationsAllowed: true},
+		{name: "public jwt", publicMode: config.AuthModeJWT, operationsMode: config.AuthModeNone, operationsAllowed: true},
+		{name: "operations jwt", publicMode: config.AuthModeNone, operationsMode: config.AuthModeJWT, publicAllowed: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.HubDefaults()
+			cfg.Server.Auth.Mode = test.publicMode
+			cfg.Operations.Auth.Mode = test.operationsMode
+			public, operations, err := listenerAuthentications(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, publicErr := public.Authorize(t.Context(), auth.ScopeContentPublish)
+			_, operationsErr := operations.Authorize(t.Context(), auth.ScopeOperationsRead)
+			if (publicErr == nil) != test.publicAllowed || (operationsErr == nil) != test.operationsAllowed {
+				t.Fatalf("public error=%v operations error=%v", publicErr, operationsErr)
+			}
+		})
 	}
 }
 

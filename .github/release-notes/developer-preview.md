@@ -14,6 +14,11 @@ persisted-state compatibility.
 
 ## Preview limitations
 
+Starting with v0.5.1, existing v0.5.0 hub configurations must explicitly set
+`server.auth.mode` and `operations.auth.mode` to `none` or `jwt`; omission is a
+startup error. The packaged developer configuration uses `none`. Production
+deployments should use `jwt`; authentication never falls back on JWT failure.
+
 Automatic subscription renewal, lease expiry, ownership transfer and fencing,
 event-stream APIs, and complete failure qualification are deferred. macOS
 archives are not Apple-notarized and Windows archives are not Authenticode

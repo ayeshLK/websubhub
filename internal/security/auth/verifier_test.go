@@ -138,6 +138,9 @@ func newJWTFixture(t *testing.T) jwtFixture {
 		t.Fatal(err)
 	}
 	cfg := config.HubDefaults().Security.JWT
+	cfg.Issuer = "https://issuer.example.test"
+	cfg.Audience = "websubhub"
+	cfg.JWKSURL = "https://issuer.example.test/keys"
 	verifier, err := New(cfg, fixedSource{set})
 	if err != nil {
 		t.Fatal(err)

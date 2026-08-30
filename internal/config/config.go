@@ -34,6 +34,11 @@ import (
 const EnvPrefix = "WEBSUBHUB__"
 
 const (
+	AuthModeNone = "none"
+	AuthModeJWT  = "jwt"
+)
+
+const (
 	defaultStateEventsDestination    = "websub-events"
 	defaultStateSnapshotsDestination = "websub-events-snapshots"
 )
@@ -63,12 +68,17 @@ type HubConfig struct {
 }
 
 type OperationsServer struct {
+	Auth              APIAuth  `toml:"auth"`
 	Listen            string   `toml:"listen"`
 	ReadHeaderTimeout Duration `toml:"read_header_timeout"`
 	ReadTimeout       Duration `toml:"read_timeout"`
 	WriteTimeout      Duration `toml:"write_timeout"`
 	IdleTimeout       Duration `toml:"idle_timeout"`
 	ShutdownTimeout   Duration `toml:"shutdown_timeout"`
+}
+
+type APIAuth struct {
+	Mode string `toml:"mode"`
 }
 
 type Security struct {
@@ -104,6 +114,7 @@ type SecretStorage struct {
 }
 
 type HubServer struct {
+	Auth              APIAuth  `toml:"auth"`
 	ID                string   `toml:"id"`
 	Listen            string   `toml:"listen"`
 	PublicURL         string   `toml:"public_url"`
@@ -270,8 +281,6 @@ func HubDefaults() HubConfig {
 		Operations: OperationsServer{Listen: "127.0.0.1:9090", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(15 * time.Second), WriteTimeout: Duration(15 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second)},
 		Security: Security{
 			JWT: JWT{
-				Issuer: "https://identity.example.invalid", Audience: "websubhub",
-				JWKSURL:    "https://identity.example.invalid/.well-known/jwks.json",
 				Algorithms: []string{"RS256"}, ScopeClaim: "scope",
 				ClockSkew: Duration(30 * time.Second), CacheTTL: Duration(15 * time.Minute),
 				RequestTimeout: Duration(5 * time.Second), MaxTokenBytes: 16 << 10,
@@ -390,7 +399,13 @@ func (c HubConfig) Validate() error {
 	if c.Operations.ReadHeaderTimeout <= 0 || c.Operations.ReadTimeout <= 0 || c.Operations.WriteTimeout <= 0 || c.Operations.IdleTimeout <= 0 || c.Operations.ShutdownTimeout <= 0 {
 		return errors.New("operations HTTP timeouts must be positive")
 	}
-	if err := c.Security.validate(); err != nil {
+	if err := validateAPIAuth("server.auth", c.Server.Auth); err != nil {
+		return err
+	}
+	if err := validateAPIAuth("operations.auth", c.Operations.Auth); err != nil {
+		return err
+	}
+	if err := c.Security.validate(c.Server.Auth.Mode == AuthModeJWT || c.Operations.Auth.Mode == AuthModeJWT); err != nil {
 		return err
 	}
 	publicURL, err := url.Parse(c.Server.PublicURL)
@@ -427,9 +442,11 @@ func (c HubConfig) Validate() error {
 	return c.MessageStore.validate()
 }
 
-func (c Security) validate() error {
-	if err := c.JWT.validate(); err != nil {
-		return err
+func (c Security) validate(jwtRequired bool) error {
+	if jwtRequired {
+		if err := c.JWT.validate(); err != nil {
+			return err
+		}
 	}
 	if err := c.Callbacks.validate(); err != nil {
 		return err
@@ -657,6 +674,15 @@ func (c ConsolidatorState) validate() error {
 		return errors.New("state.consumer.batch_size must be positive")
 	}
 	return nil
+}
+
+func validateAPIAuth(name string, auth APIAuth) error {
+	switch auth.Mode {
+	case AuthModeNone, AuthModeJWT:
+		return nil
+	default:
+		return fmt.Errorf("%s.mode must be %q or %q", name, AuthModeNone, AuthModeJWT)
+	}
 }
 
 func validateClientAuth(auth ClientAuth) error {

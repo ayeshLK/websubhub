@@ -3,8 +3,14 @@ id = "hub-a"
 listen = ":8080"
 public_url = "http://hub-a:8080/websub"
 
+[server.auth]
+mode = "jwt"
+
 [operations]
 listen = ":9090"
+
+[operations.auth]
+mode = "jwt"
 
 [security.jwt]
 issuer = "https://fixture:8443"

@@ -28,16 +28,16 @@ product identities.
 
 The Kafka BYOB v0.5 preview now includes separate `websubhub` and
 `websubhub-consolidator` binaries, TOML configuration with hierarchical
-`WEBSUBHUB__` overrides, JWT-protected public mutations and operations, optional
-hub-to-consolidator mTLS, Kafka-backed MessageStore and StateStore behavior,
+`WEBSUBHUB__` overrides, explicit none/JWT public and operations
+authentication, optional hub-to-consolidator mTLS, Kafka-backed MessageStore and StateStore behavior,
 resource-topic ingestion and at-least-once delivery, and a two-hub Docker
 Compose acceptance topology using `apache/kafka:4.1.0`.
 
 Pull requests #6, #8, #10, #12, #13, #14, and #15 are merged. Release
 `v0.5.0` was published on 30 August 2026 from tagged source commit
-`bb8ff3d65b1a8f09032c75f12dbc2946ec3e07b2`. Pull request #16 is the generated
-transition to `version=0.5.1-SNAPSHOT`; its CI requires maintainer approval
-before it can be reviewed and merged.
+`bb8ff3d65b1a8f09032c75f12dbc2946ec3e07b2`. Pull requests #16 and #17 are
+also merged;
+`main` declares `version=0.5.1-SNAPSHOT`.
 
 ADR 0018 fixes lockstep versions with independent component packages. The
 release configuration builds 12 archives: `websubhub` and
@@ -49,6 +49,16 @@ semantic-version tags, not `latest`. The Docker Hub repositories, scoped
 `DOCKERHUB_TOKEN`, protected GitHub `release` environment, repository Actions
 pull-request permission, and immutable `v*` tag rules are configured. Native
 macOS/Windows signing remains deferred to issue #7.
+
+ADR 0021 supersedes ADR 0016's mandatory inbound JWT rule. Both hub
+listeners require an explicit `none` or `jwt` mode; omission is a startup error.
+The packaged developer configuration selects `none`, while the production
+example and Compose acceptance select `jwt`. JWT configuration is required only
+when at least one listener selects it, and invalid JWT configuration never
+falls back to `none`. Disabled authentication uses the fixed actor ID
+`unauthenticated`; callback verification, SSRF defenses, secret encryption, and
+provider security remain active. Existing v0.5.0 configurations must add both
+mode declarations when upgrading.
 
 ADR 0020 defines the reviewed version lifecycle through `release.properties`,
 the `Prepare release` workflow, and the protected `Release` workflow. Do not
@@ -77,8 +87,7 @@ acceptance tests must synchronize local delivery readiness separately. Topic
 IDs can be URLs and must be percent-encoded when placed in the detail path.
 
 The query API uses explicit redacted DTOs, stable product IDs, deterministic
-ordering, a maximum collection limit of 100, exact status filters, and the
-existing `websubhub:ops:read` scope. Cursor pagination is reserved but rejected
+ordering, a maximum collection limit of 100, exact status filters, and the existing `websubhub:ops:read` scope when `operations.auth.mode = "jwt"`. Cursor pagination is reserved but rejected
 in v0.5. `GET /v1/dlq`, tenant/project semantics, management mutations, and the
 nested topic-subscriptions convenience route are deferred.
 

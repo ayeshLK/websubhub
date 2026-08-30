@@ -43,11 +43,11 @@ provider = "kafka"
 [message_store.kafka]
 brokers = ["kafka:9092"]
 `)
-	cfg, err := LoadHub(path, []string{
+	cfg, err := LoadHub(path, noneAuthEnvironment(
 		"WEBSUBHUB__SERVER__ID=environment-id",
 		"WEBSUBHUB__STATE__EVENTS__DESTINATION=environment-state-events",
 		"WEBSUBHUB__STATE__STARTUP__BUFFER_MAX=2048",
-	})
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,10 +80,10 @@ brokers = ["kafka:9092"]
 }
 
 func TestEnvironmentArrayOverride(t *testing.T) {
-	cfg, err := LoadHub("", []string{
+	cfg, err := LoadHub("", noneAuthEnvironment(
 		"WEBSUBHUB__SERVER__ID=hub-1",
 		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["one:9092", "two:9092"]`,
-	})
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,13 +93,13 @@ func TestEnvironmentArrayOverride(t *testing.T) {
 }
 
 func TestResourceProtocolEnvironmentOverrides(t *testing.T) {
-	cfg, err := LoadHub("", []string{
+	cfg, err := LoadHub("", noneAuthEnvironment(
 		"WEBSUBHUB__SERVER__ID=hub-1",
 		"WEBSUBHUB__SERVER__PUBLIC_URL=https://hub.example.test/websub",
 		"WEBSUBHUB__PROTOCOL__PUBLISHER_EXTENSION_ENABLED=true",
 		"WEBSUBHUB__PROTOCOL__VERIFICATION_WORKERS=8",
 		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
-	})
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,14 +109,14 @@ func TestResourceProtocolEnvironmentOverrides(t *testing.T) {
 }
 
 func TestDeliveryEnvironmentOverrides(t *testing.T) {
-	cfg, err := LoadHub("", []string{
+	cfg, err := LoadHub("", noneAuthEnvironment(
 		"WEBSUBHUB__SERVER__ID=hub-1",
 		"WEBSUBHUB__DELIVERY__RETRY__STRATEGY=message_store",
 		"WEBSUBHUB__DELIVERY__RETRY__HTTP__BACKOFF_FACTOR=1.5",
 		"WEBSUBHUB__DELIVERY__RETRY__HTTP__RETRY_STATUS_CODES=[429,503]",
 		"WEBSUBHUB__DELIVERY__RETRY__MESSAGE_STORE__DEAD_LETTER_STATUS_CODES=[400,404]",
 		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
-	})
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestDeliveryEnvironmentOverrides(t *testing.T) {
 }
 
 func TestSecurityEnvironmentOverrides(t *testing.T) {
-	cfg, err := LoadHub("", []string{
+	cfg, err := LoadHub("", noneAuthEnvironment(
 		"WEBSUBHUB__SERVER__ID=hub-1",
 		"WEBSUBHUB__OPERATIONS__LISTEN=127.0.0.1:9191",
 		"WEBSUBHUB__SECURITY__JWT__ISSUER=https://issuer.example.test",
@@ -136,7 +136,7 @@ func TestSecurityEnvironmentOverrides(t *testing.T) {
 		`WEBSUBHUB__SECURITY__CALLBACKS__ALLOWED_HOSTS=["subscriber.internal"]`,
 		`WEBSUBHUB__SECURITY__CALLBACKS__ALLOWED_CIDRS=["10.20.0.0/16"]`,
 		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
-	})
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,21 +146,21 @@ func TestSecurityEnvironmentOverrides(t *testing.T) {
 }
 
 func TestSecurityConfigurationCannotDowngradeJWTOrCallbackPolicy(t *testing.T) {
-	cfg := HubDefaults()
+	cfg := validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Security.JWT.Algorithms = []string{"HS256"}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "asymmetric") {
 		t.Fatalf("symmetric algorithm error = %v", err)
 	}
-	cfg = HubDefaults()
+	cfg = validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Security.JWT.JWKSURL = "http://issuer.example.test/keys"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "HTTPS") {
 		t.Fatalf("insecure JWKS error = %v", err)
 	}
-	cfg = HubDefaults()
+	cfg = validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Security.Callbacks.AllowedCIDRs = []string{"not-a-cidr"}
@@ -169,8 +169,55 @@ func TestSecurityConfigurationCannotDowngradeJWTOrCallbackPolicy(t *testing.T) {
 	}
 }
 
+func TestAPIAuthenticationModesAreExplicit(t *testing.T) {
+	tests := []struct {
+		name       string
+		configure  func(*HubConfig)
+		errorField string
+	}{
+		{name: "missing public", configure: func(cfg *HubConfig) { cfg.Server.Auth.Mode = "" }, errorField: "server.auth.mode"},
+		{name: "missing operations", configure: func(cfg *HubConfig) { cfg.Operations.Auth.Mode = "" }, errorField: "operations.auth.mode"},
+		{name: "unknown public", configure: func(cfg *HubConfig) { cfg.Server.Auth.Mode = "optional" }, errorField: "server.auth.mode"},
+		{name: "unknown operations", configure: func(cfg *HubConfig) { cfg.Operations.Auth.Mode = "optional" }, errorField: "operations.auth.mode"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validHubConfig()
+			cfg.Server.ID = "hub-1"
+			cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+			test.configure(&cfg)
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), test.errorField) {
+				t.Fatalf("mode error = %v", err)
+			}
+		})
+	}
+}
+
+func TestNoneAuthenticationDoesNotRequireJWTConfiguration(t *testing.T) {
+	cfg := validHubConfig()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Server.Auth.Mode = AuthModeNone
+	cfg.Operations.Auth.Mode = AuthModeNone
+	cfg.Security.JWT = JWT{}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJWTModeRequiresCompleteJWTConfiguration(t *testing.T) {
+	cfg := validHubConfig()
+	cfg.Server.ID = "hub-1"
+	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
+	cfg.Server.Auth.Mode = AuthModeNone
+	cfg.Security.JWT.Issuer = ""
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "security.jwt.issuer") {
+		t.Fatalf("missing JWT issuer error = %v", err)
+	}
+}
+
 func TestDeliveryConfigurationRejectsAmbiguousMappings(t *testing.T) {
-	cfg := HubDefaults()
+	cfg := validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Delivery.Retry.Strategy = "message_store"
@@ -178,7 +225,7 @@ func TestDeliveryConfigurationRejectsAmbiguousMappings(t *testing.T) {
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "410") {
 		t.Fatalf("410 mapping error = %v", err)
 	}
-	cfg = HubDefaults()
+	cfg = validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Delivery.Retry.Strategy = "message_store"
@@ -201,6 +248,9 @@ brokers = ["kafka:9092"]
 	consolidatorOnly := writeConfig(t, "consolidator-only.toml", `[server.auth]
 mode = "none"
 
+[server.auth.mtls]
+client_ca_file = "consolidator-only-ca.crt"
+
 [message_store.kafka]
 brokers = ["kafka:9092"]
 `)
@@ -213,11 +263,11 @@ brokers = ["kafka:9092"]
 	}); err == nil {
 		t.Fatal("consolidator accepted hub-only environment override")
 	}
-	if _, err := LoadHub("", []string{
+	if _, err := LoadHub("", noneAuthEnvironment(
 		"WEBSUBHUB__SERVER__ID=hub-1",
 		"WEBSUBHUB__STATE__SNAPSHOTS__DESTINATION=invalid",
 		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
-	}); err == nil {
+	)); err == nil {
 		t.Fatal("hub accepted consolidator-only state override")
 	}
 	if _, err := LoadConsolidator("", []string{
@@ -233,13 +283,13 @@ func TestLoadRejectsUnknownKeys(t *testing.T) {
 	if _, err := LoadHub(path, nil); err == nil {
 		t.Fatal("unknown TOML key accepted")
 	}
-	if _, err := LoadHub("", []string{"WEBSUBHUB__SERVER__UNKNOWN=value"}); err == nil {
+	if _, err := LoadHub("", noneAuthEnvironment("WEBSUBHUB__SERVER__UNKNOWN=value")); err == nil {
 		t.Fatal("unknown environment override accepted")
 	}
 }
 
 func TestMTLSValidationCannotSilentlyDowngrade(t *testing.T) {
-	hub := HubDefaults()
+	hub := validHubConfig()
 	hub.Server.ID = "hub-1"
 	hub.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	hub.Consolidator.Auth.Mode = "mtls"
@@ -270,10 +320,14 @@ func TestExampleConfigurations(t *testing.T) {
 	if _, err := LoadConsolidator(filepath.Join(root, "websubhub-consolidator.example.toml"), nil); err != nil {
 		t.Fatalf("consolidator example: %v", err)
 	}
+	packaged := filepath.Join("..", "..", "packaging", "websubhub", "config", "websubhub.toml")
+	if _, err := LoadHub(packaged, nil); err != nil {
+		t.Fatalf("packaged hub config: %v", err)
+	}
 }
 
 func TestKafkaSecurityConfigurationIsStrict(t *testing.T) {
-	cfg := HubDefaults()
+	cfg := validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.MessageStore.Kafka.TLS.Enabled = true
@@ -292,14 +346,14 @@ func TestKafkaSecurityConfigurationIsStrict(t *testing.T) {
 }
 
 func TestStateConfigurationValidation(t *testing.T) {
-	hub := HubDefaults()
+	hub := validHubConfig()
 	hub.Server.ID = "hub-1"
 	hub.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	hub.State.Startup.BufferMax = 0
 	if err := hub.Validate(); err == nil || !strings.Contains(err.Error(), "buffer_max") {
 		t.Fatalf("hub startup buffer error = %v", err)
 	}
-	hub = HubDefaults()
+	hub = validHubConfig()
 	hub.Server.ID = "hub-1"
 	hub.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	hub.State.Events.ConsumerBatchSize = 0
@@ -322,27 +376,44 @@ func TestStateConfigurationValidation(t *testing.T) {
 }
 
 func TestResourceProtocolValidation(t *testing.T) {
-	cfg := HubDefaults()
+	cfg := validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Server.PublicURL = "https://hub.example.test/websub?secret=query"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "public_url") {
 		t.Fatalf("public URL error = %v", err)
 	}
-	cfg = HubDefaults()
+	cfg = validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Protocol.DefaultLease = Duration(11 * 24 * time.Hour)
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "default_lease") {
 		t.Fatalf("lease error = %v", err)
 	}
-	cfg = HubDefaults()
+	cfg = validHubConfig()
 	cfg.Server.ID = "hub-1"
 	cfg.MessageStore.Kafka.Brokers = []string{"kafka:9092"}
 	cfg.Protocol.VerificationQueue = 0
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "workers and queue") {
 		t.Fatalf("verification bounds error = %v", err)
 	}
+}
+
+func noneAuthEnvironment(values ...string) []string {
+	return append([]string{
+		"WEBSUBHUB__SERVER__AUTH__MODE=none",
+		"WEBSUBHUB__OPERATIONS__AUTH__MODE=none",
+	}, values...)
+}
+
+func validHubConfig() HubConfig {
+	cfg := HubDefaults()
+	cfg.Server.Auth.Mode = AuthModeJWT
+	cfg.Operations.Auth.Mode = AuthModeJWT
+	cfg.Security.JWT.Issuer = "https://issuer.example.test"
+	cfg.Security.JWT.Audience = "websubhub"
+	cfg.Security.JWT.JWKSURL = "https://issuer.example.test/keys"
+	return cfg
 }
 
 func writeConfig(t *testing.T, name, contents string) string {

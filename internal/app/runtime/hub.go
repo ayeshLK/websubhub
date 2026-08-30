@@ -107,8 +107,7 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	keySource := auth.NewRemoteKeySource(cfg.Security.JWT, nil)
-	verifier, err := auth.New(cfg.Security.JWT, keySource)
+	publicAuthorization, operationsAuthentication, err := listenerAuthentications(cfg)
 	if err != nil {
 		return err
 	}
@@ -118,7 +117,7 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 	}
 	protocol, err := resourcehub.New(cfg, resourcehub.Dependencies{
 		Events: store, Projection: projection, Secrets: secretProvider, Callbacks: callbackPolicy,
-		Authorization: verifier, Content: ingestor, Subscriptions: administrator, VerificationClient: callbackClient,
+		Authorization: publicAuthorization, Content: ingestor, Subscriptions: administrator, VerificationClient: callbackClient,
 	})
 	if err != nil {
 		return err
@@ -150,7 +149,7 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	operations, err := admin.New(admin.Dependencies{Authentication: verifier, Readiness: projection, Projection: projection, Capabilities: administrator, Queries: queries})
+	operations, err := admin.New(admin.Dependencies{Authentication: operationsAuthentication, Readiness: projection, Projection: projection, Capabilities: administrator, Queries: queries})
 	if err != nil {
 		return err
 	}
@@ -175,6 +174,26 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 		cancel(serverErr)
 	}
 	return runtimeResult(ctx, runCtx, serverErr)
+}
+
+func listenerAuthentications(cfg config.HubConfig) (resourcehub.Authorizer, admin.Authentication, error) {
+	unauthenticated := auth.None{}
+	var publicAuthorization resourcehub.Authorizer = unauthenticated
+	var operationsAuthentication admin.Authentication = unauthenticated
+	if cfg.Server.Auth.Mode == config.AuthModeJWT || cfg.Operations.Auth.Mode == config.AuthModeJWT {
+		keySource := auth.NewRemoteKeySource(cfg.Security.JWT, nil)
+		verifier, err := auth.New(cfg.Security.JWT, keySource)
+		if err != nil {
+			return nil, nil, err
+		}
+		if cfg.Server.Auth.Mode == config.AuthModeJWT {
+			publicAuthorization = verifier
+		}
+		if cfg.Operations.Auth.Mode == config.AuthModeJWT {
+			operationsAuthentication = verifier
+		}
+	}
+	return publicAuthorization, operationsAuthentication, nil
 }
 
 func publicMux(publicURL string, handler http.Handler) (http.Handler, error) {

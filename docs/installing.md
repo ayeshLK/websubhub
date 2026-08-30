@@ -80,11 +80,19 @@ mounted as files.
 Before startup, replace the example values for:
 
 - Kafka bootstrap brokers, TLS identity, and optional SASL authentication;
-- the hub's stable server ID, public URL, and listener addresses;
-- JWT issuer, audience, JWKS URL, algorithms, and operation scopes;
+- the hub's stable server ID, public URL, listener addresses, and explicit
+  `server.auth.mode` and `operations.auth.mode`;
+- JWT issuer, audience, JWKS URL, algorithms, and operation scopes when either
+  listener uses `jwt`;
 - subscription encryption key file;
 - hub-to-consolidator endpoint and mTLS identities;
 - callback allowlists, retry policy, retention, and destination names.
+
+Starting with v0.5.1, both hub listener modes are required. Existing v0.5.0
+configurations must add `[server.auth]` and `[operations.auth]` with an explicit
+`none` or `jwt` mode. An omitted or unknown mode fails startup. `none` is for
+local evaluation or a separately protected trusted boundary; it authorizes all
+operations on that listener and emits a startup warning.
 
 Environment variables override TOML using the `WEBSUBHUB__` prefix and
 double underscores between nested keys. For example:
@@ -116,7 +124,9 @@ curl --fail http://127.0.0.1:9090/health/ready
 ```
 
 The consolidator also exposes `/health/live` and `/health/ready` on its
-configured listener. Protect public and operations mutations with JWT. Use
+configured listener. The packaged hub configuration explicitly selects `none`
+for both authentication modes so local evaluation does not require tokens.
+Select `jwt` and configure `security.jwt` before exposing either listener. Use
 mTLS between hubs and the consolidator unless that traffic stays on an
 isolated, trusted network.
 

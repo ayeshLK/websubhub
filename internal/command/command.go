@@ -35,6 +35,15 @@ func Run(component string, args []string, stdout, stderr io.Writer) int {
 	return RunContext(ctx, component, args, os.Environ(), stdout, stderr)
 }
 
+func writeAuthenticationWarnings(destination io.Writer, cfg config.HubConfig) {
+	if cfg.Server.Auth.Mode == config.AuthModeNone {
+		fmt.Fprintln(destination, "websubhub: warning: public API authentication is disabled by server.auth.mode = \"none\"")
+	}
+	if cfg.Operations.Auth.Mode == config.AuthModeNone {
+		fmt.Fprintln(destination, "websubhub: warning: operations API authentication is disabled by operations.auth.mode = \"none\"")
+	}
+}
+
 func RunContext(ctx context.Context, component string, args, environ []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet(component, flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -62,6 +71,7 @@ func RunContext(ctx context.Context, component string, args, environ []string, s
 		var cfg config.HubConfig
 		cfg, err = config.LoadHub(*configPath, environ)
 		if err == nil {
+			writeAuthenticationWarnings(stderr, cfg)
 			err = appRuntime.RunHub(ctx, cfg)
 		}
 	case "websubhub-consolidator":
