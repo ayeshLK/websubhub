@@ -25,9 +25,6 @@ fail() {
 command -v tar >/dev/null 2>&1 || fail "tar is required"
 command -v unzip >/dev/null 2>&1 || fail "unzip is required"
 
-cmp -s configs/websubhub.example.toml \
-    packaging/websubhub/config/websubhub.toml ||
-    fail "packaged websubhub configuration differs from the repository template"
 cmp -s configs/websubhub-consolidator.example.toml \
     packaging/websubhub-consolidator/config/websubhub-consolidator.toml ||
     fail "packaged consolidator configuration differs from the repository template"
@@ -70,6 +67,20 @@ verify_archive() {
         printf '%s\n' "$entries" | grep -Fx "$required" >/dev/null ||
             fail "$archive is missing $required"
     done
+
+    packaged_config="packaging/$component/config/$component.toml"
+    case "$archive" in
+        *.zip)
+            unzip -p "$archive" "$root/config/$component.toml" |
+                cmp -s "$packaged_config" - ||
+                fail "$archive contains an unexpected configuration"
+            ;;
+        *)
+            tar -xOzf "$archive" "$root/config/$component.toml" |
+                cmp -s "$packaged_config" - ||
+                fail "$archive contains an unexpected configuration"
+            ;;
+    esac
 
     other=websubhub-consolidator
     [ "$component" = websubhub-consolidator ] && other=websubhub
