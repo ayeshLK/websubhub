@@ -9,8 +9,9 @@ Define the exact CloudEvents topic, publication, subscription, progress, and
 replay contract before implementing event-stream behavior. Resource-topic work
 is independent.
 
-The initial security profile is resolved by ADR 0016. JWT endpoint security,
-dial-time callback SSRF controls, and file-backed secret encryption block the
+The initial security profile is resolved by ADR 0016 as superseded for inbound
+endpoint authentication by ADR 0021. Explicit `none` or `jwt` listener modes,
+dial-time callback SSRF controls, and file-backed secret encryption govern the
 public preview. Hub-to-consolidator authentication remains governed by ADR
 0009.
 

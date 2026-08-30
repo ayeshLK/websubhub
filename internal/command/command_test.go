@@ -19,6 +19,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/ayeshLK/websubhub/internal/config"
 )
 
 func TestVersion(t *testing.T) {
@@ -48,6 +50,19 @@ func TestRuntimeRequiresValidProcessConfiguration(t *testing.T) {
 	}
 	if got := stderr.String(); !strings.Contains(got, "server.id is required") {
 		t.Fatalf("Run() stderr = %q", got)
+	}
+}
+
+func TestAuthenticationWarnings(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.HubDefaults()
+	cfg.Server.Auth.Mode = config.AuthModeNone
+	cfg.Operations.Auth.Mode = config.AuthModeJWT
+	var output bytes.Buffer
+	writeAuthenticationWarnings(&output, cfg)
+	if got := output.String(); !strings.Contains(got, "public API authentication is disabled") || strings.Contains(got, "operations API") {
+		t.Fatalf("warnings = %q", got)
 	}
 }
 

@@ -1,6 +1,6 @@
 # ADR 0017: Internal management query API
 
-- Status: Accepted for v0.5.0
+- Status: Superseded in part by ADR 0021
 - Date: 2026-08-27
 
 ## Context
@@ -19,6 +19,11 @@ admission projection, as defined by ADR 0006.
 
 ## Decision
 
+ADR 0021 makes the operation-scope requirement below conditional on
+`operations.auth.mode = "jwt"`. In `none` mode the same redacted, bounded query
+contract is intentionally unauthenticated; all other decisions remain
+authoritative.
+
 The protected operations listener exposes this internal, read-only BFF
 contract:
 
@@ -35,8 +40,7 @@ reserved but rejected in v0.5. Unknown query parameters are rejected.
 
 Every successful response includes the canonical snapshot revision. Retained
 inactive topics and removed subscriptions remain inspectable; an unknown stable
-product ID returns a bounded 404 response. All routes require
-`websubhub:ops:read`.
+product ID returns a bounded 404 response. All routes require `websubhub:ops:read` when the operations listener uses JWT.
 
 The hub authenticates the caller and maps canonical state into explicit API
 views. Responses omit content destinations, consumer identities, plaintext and

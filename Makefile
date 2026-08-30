@@ -56,7 +56,7 @@ compose-smoke:
 release-check:
 	@command -v $(GORELEASER) >/dev/null || (echo "goreleaser is required" >&2; exit 1)
 	$(GORELEASER) check
-	cmp configs/websubhub.example.toml packaging/websubhub/config/websubhub.toml
+	$(GO) test ./internal/config -run TestExampleConfigurations
 	cmp configs/websubhub-consolidator.example.toml packaging/websubhub-consolidator/config/websubhub-consolidator.toml
 
 release-snapshot: release-check
