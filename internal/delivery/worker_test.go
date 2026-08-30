@@ -171,6 +171,9 @@ type fakeAdministrator struct{}
 func (fakeAdministrator) EnsureDestination(context.Context, messagestore.DestinationSpec) error {
 	return nil
 }
+func (fakeAdministrator) ValidateSubscription(context.Context, messagestore.Destination, messagestore.SubscriptionOptions) error {
+	return nil
+}
 func (fakeAdministrator) OpenConsumer(context.Context, messagestore.ConsumerSpec) (messagestore.Consumer, error) {
 	return &fakeConsumer{}, nil
 }

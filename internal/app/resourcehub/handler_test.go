@@ -26,6 +26,7 @@ import (
 
 	"github.com/ayeshLK/websubhub/internal/config"
 	"github.com/ayeshLK/websubhub/internal/persistence"
+	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/ayeshLK/websubhub/internal/state"
 )
 
@@ -69,6 +70,18 @@ type sealer struct {
 type allowCallbacks struct{}
 
 func (allowCallbacks) ValidateURL(context.Context, string) error { return nil }
+
+type allowSubscriptions struct{}
+
+func (allowSubscriptions) ValidateSubscription(context.Context, messagestore.Destination, messagestore.SubscriptionOptions) error {
+	return nil
+}
+
+type subscriptionValidatorFunc func(context.Context, messagestore.Destination, messagestore.SubscriptionOptions) error
+
+func (f subscriptionValidatorFunc) ValidateSubscription(ctx context.Context, destination messagestore.Destination, options messagestore.SubscriptionOptions) error {
+	return f(ctx, destination, options)
+}
 
 type allowAuthorization struct{}
 
@@ -156,11 +169,12 @@ func TestVerifiedSubscriptionSealsAndAppendsOwnedState(t *testing.T) {
 
 	callback := verificationServer(t)
 	values := url.Values{
-		"hub.mode":          {"subscribe"},
-		"hub.topic":         {topic},
-		"hub.callback":      {callback.URL + "/capability?token=opaque"},
-		"hub.lease_seconds": {"300"},
-		"hub.secret":        {"subscriber-secret"},
+		"hub.mode":             {"subscribe"},
+		"hub.topic":            {topic},
+		"hub.callback":         {callback.URL + "/capability?token=opaque"},
+		"hub.lease_seconds":    {"300"},
+		"hub.secret":           {"subscriber-secret"},
+		"kafka.consumer_group": {"workers"},
 	}
 	response := serveForm(handler, values)
 	if response.Code != http.StatusAccepted {
@@ -178,7 +192,7 @@ func TestVerifiedSubscriptionSealsAndAppendsOwnedState(t *testing.T) {
 		subscription.ServerID != cfg.Server.ID ||
 		string(subscription.SecretCiphertext) != "sealed-value" ||
 		subscription.SecretKeyID != "test-key" ||
-		secrets.input() != "subscriber-secret" {
+		secrets.input() != "subscriber-secret" || subscription.Parameters["kafka.consumer_group"][0] != "workers" {
 		t.Fatalf("subscription = %#v sealed input=%q", subscription, secrets.input())
 	}
 	encoded, err := state.EncodeEvent(verified)
@@ -292,12 +306,16 @@ func TestNewRequiresDurableDependencies(t *testing.T) {
 }
 
 func newTestHandler(t *testing.T, cfg config.HubConfig, events EventAppender, view Projection, secrets SecretSealer) *Handler {
+	return newTestHandlerWithValidator(t, cfg, events, view, secrets, allowSubscriptions{})
+}
+
+func newTestHandlerWithValidator(t *testing.T, cfg config.HubConfig, events EventAppender, view Projection, secrets SecretSealer, subscriptions SubscriptionValidator) *Handler {
 	t.Helper()
 	sequence := 0
 	handler, err := New(cfg, Dependencies{
 		Events: events, Projection: view, Secrets: secrets, Callbacks: allowCallbacks{}, Authorization: allowAuthorization{},
-		VerificationClient: http.DefaultClient,
-		Now:                func() time.Time { return adapterTime },
+		Subscriptions: subscriptions, VerificationClient: http.DefaultClient,
+		Now: func() time.Time { return adapterTime },
 		NewEventID: func() (string, error) {
 			sequence++
 			return "event-test-" + string(rune('0'+sequence)), nil

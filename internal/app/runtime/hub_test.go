@@ -64,6 +64,9 @@ func (a *recordingAdministrator) EnsureDestination(_ context.Context, spec messa
 	a.specs = append(a.specs, spec)
 	return nil
 }
+func (*recordingAdministrator) ValidateSubscription(context.Context, messagestore.Destination, messagestore.SubscriptionOptions) error {
+	return nil
+}
 func (*recordingAdministrator) OpenConsumer(context.Context, messagestore.ConsumerSpec) (messagestore.Consumer, error) {
 	panic("unexpected OpenConsumer")
 }

@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+
+	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 )
 
 var ErrInvalidTransition = errors.New("invalid state transition")
@@ -80,6 +82,9 @@ func apply(next *Snapshot, event Event) (bool, error) {
 		desired := cloneSubscription(e.Subscription)
 		if desired.ID == "" || desired.TopicID == "" || desired.TopicURL == "" || desired.CallbackURL == "" || desired.ServerID == "" || desired.ConsumerID == "" || desired.LeaseStartedAt.IsZero() {
 			return false, fmt.Errorf("%w: incomplete verified subscription", ErrInvalidTransition)
+		}
+		if _, err := messagestore.NewSubscriptionOptions(desired.Parameters); err != nil {
+			return false, fmt.Errorf("%w: invalid subscription options", ErrInvalidTransition)
 		}
 		topic, ok := next.Topics[desired.TopicID]
 		if !ok || topic.Status != TopicActive || topic.CanonicalURL != desired.TopicURL {
@@ -195,6 +200,10 @@ func cloneSnapshot(source Snapshot) Snapshot {
 
 func cloneSubscription(source Subscription) Subscription {
 	source.SecretCiphertext = slices.Clone(source.SecretCiphertext)
+	source.Parameters = maps.Clone(source.Parameters)
+	for key, values := range source.Parameters {
+		source.Parameters[key] = slices.Clone(values)
+	}
 	return source
 }
 
@@ -205,5 +214,5 @@ func sameTopic(a, b Topic) bool {
 
 func sameSubscription(a, b Subscription) bool {
 	a.Revision, b.Revision = 0, 0
-	return a.ID == b.ID && a.TopicID == b.TopicID && a.TopicURL == b.TopicURL && a.CallbackURL == b.CallbackURL && slices.Equal(a.SecretCiphertext, b.SecretCiphertext) && a.SecretKeyID == b.SecretKeyID && a.LeaseStartedAt.Equal(b.LeaseStartedAt) && a.EffectiveLeaseSeconds == b.EffectiveLeaseSeconds && a.ServerID == b.ServerID && a.ConsumerID == b.ConsumerID && a.Status == b.Status && a.StaleReason == b.StaleReason
+	return a.ID == b.ID && a.TopicID == b.TopicID && a.TopicURL == b.TopicURL && a.CallbackURL == b.CallbackURL && slices.Equal(a.SecretCiphertext, b.SecretCiphertext) && a.SecretKeyID == b.SecretKeyID && a.LeaseStartedAt.Equal(b.LeaseStartedAt) && a.EffectiveLeaseSeconds == b.EffectiveLeaseSeconds && a.ServerID == b.ServerID && a.ConsumerID == b.ConsumerID && maps.EqualFunc(a.Parameters, b.Parameters, slices.Equal) && a.Status == b.Status && a.StaleReason == b.StaleReason
 }

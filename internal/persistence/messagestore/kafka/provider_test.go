@@ -104,7 +104,7 @@ func TestConfigAndCapabilities(t *testing.T) {
 		t.Fatalf("required acks = %#v", got)
 	}
 	spec := messagestore.ConsumerSpec{ID: "consumer", Destination: "events", StartPosition: messagestore.StartEarliest}
-	consumerClient, err := kgo.NewClient(consumerOptions(config, spec, kgo.NewOffset().AtStart())...)
+	consumerClient, err := kgo.NewClient(consumerOptions(config, spec, kgo.NewOffset().AtStart(), groupName(spec.ID), nil)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,13 +121,17 @@ var _ produceClient = (*fakeProduceClient)(nil)
 var _ adminClient = (*fakeAdminClient)(nil)
 
 type fakeAdminClient struct {
-	deleted     int
-	ends        kadm.ListedOffsets
-	details     kadm.TopicDetails
-	afterCreate kadm.TopicDetails
-	resources   kadm.ResourceConfigs
-	created     kadm.CreateTopicResponses
-	createCalls int
+	deleted         int
+	ends            kadm.ListedOffsets
+	details         kadm.TopicDetails
+	afterCreate     kadm.TopicDetails
+	resources       kadm.ResourceConfigs
+	created         kadm.CreateTopicResponses
+	createCalls     int
+	offsets         kadm.OffsetResponses
+	commits         []kadm.Offsets
+	commitGroups    []string
+	commitResponses kadm.OffsetResponses
 }
 
 func (f *fakeAdminClient) ListEndOffsets(context.Context, ...string) (kadm.ListedOffsets, error) {
@@ -149,4 +153,12 @@ func (f *fakeAdminClient) DescribeTopicConfigs(context.Context, ...string) (kadm
 func (f *fakeAdminClient) DeleteGroup(_ context.Context, group string) (kadm.DeleteGroupResponse, error) {
 	f.deleted++
 	return kadm.DeleteGroupResponse{Group: group}, nil
+}
+func (f *fakeAdminClient) FetchOffsets(context.Context, string) (kadm.OffsetResponses, error) {
+	return f.offsets, nil
+}
+func (f *fakeAdminClient) CommitOffsets(_ context.Context, group string, offsets kadm.Offsets) (kadm.OffsetResponses, error) {
+	f.commitGroups = append(f.commitGroups, group)
+	f.commits = append(f.commits, offsets)
+	return f.commitResponses, nil
 }

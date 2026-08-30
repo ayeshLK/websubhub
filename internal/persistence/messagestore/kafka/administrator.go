@@ -34,6 +34,8 @@ type adminClient interface {
 	ListEndOffsets(context.Context, ...string) (kadm.ListedOffsets, error)
 	CreateTopics(context.Context, int32, int16, map[string]*string, ...string) (kadm.CreateTopicResponses, error)
 	DeleteGroup(context.Context, string) (kadm.DeleteGroupResponse, error)
+	FetchOffsets(context.Context, string) (kadm.OffsetResponses, error)
+	CommitOffsets(context.Context, string, kadm.Offsets) (kadm.OffsetResponses, error)
 	DescribeTopicConfigs(context.Context, ...string) (kadm.ResourceConfigs, error)
 }
 
@@ -100,15 +102,12 @@ func (a *Administrator) EnsureDestination(ctx context.Context, spec messagestore
 	if !ok {
 		return fmt.Errorf("Kafka did not return destination creation status for %s", spec.Name)
 	}
-	if response.Err == nil {
-		return nil
-	}
-	if !errors.Is(response.Err, kerr.TopicAlreadyExists) {
+	if response.Err != nil && !errors.Is(response.Err, kerr.TopicAlreadyExists) {
 		return response.Err
 	}
-	// Another node can win the create race after our initial lookup. Treat
-	// that response as idempotent only after validating the winner created the
-	// destination with the requested observable shape.
+	// Kafka can acknowledge creation before metadata observes the new topic,
+	// and another node can win the create race after our initial lookup. In
+	// both cases, return only after validating the observable destination shape.
 	visibilityCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var detail kadm.TopicDetail
@@ -126,7 +125,7 @@ func (a *Administrator) EnsureDestination(ctx context.Context, spec messagestore
 		select {
 		case <-visibilityCtx.Done():
 			timer.Stop()
-			return fmt.Errorf("Kafka destination %s was created concurrently but did not become visible: %w", spec.Name, visibilityCtx.Err())
+			return fmt.Errorf("Kafka destination %s did not become visible after creation: %w", spec.Name, visibilityCtx.Err())
 		case <-timer.C:
 		}
 	}
@@ -167,13 +166,61 @@ func (a *Administrator) validateDestinationConfig(ctx context.Context, spec mess
 	return nil
 }
 
-func (a *Administrator) OpenConsumer(_ context.Context, spec messagestore.ConsumerSpec) (messagestore.Consumer, error) {
+func (a *Administrator) ValidateSubscription(ctx context.Context, destination messagestore.Destination, options messagestore.SubscriptionOptions) error {
+	if destination == "" {
+		return errors.New("destination is required")
+	}
+	bounded, err := messagestore.NewSubscriptionOptions(options.Parameters)
+	if err != nil {
+		return err
+	}
+	config, err := parseSubscriptionOptions(bounded)
+	if err != nil || len(config.partitions) == 0 {
+		return err
+	}
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return messagestore.ErrClosed
+	}
+	admin := a.admin
+	a.mu.Unlock()
+	details, err := admin.ListTopics(ctx, string(destination))
+	if err != nil {
+		return err
+	}
+	detail, exists := details[string(destination)]
+	if !exists || errors.Is(detail.Err, kerr.UnknownTopicOrPartition) {
+		return fmt.Errorf("Kafka destination metadata is unavailable: %w", kerr.UnknownTopicOrPartition)
+	}
+	if detail.Err != nil {
+		return detail.Err
+	}
+	partitions := make(map[int32]struct{}, len(detail.Partitions))
+	for partition := range detail.Partitions {
+		partitions[partition] = struct{}{}
+	}
+	return validatePartitionMembership(config, destination, partitions)
+}
+
+func (a *Administrator) OpenConsumer(ctx context.Context, spec messagestore.ConsumerSpec) (messagestore.Consumer, error) {
+	if err := messagestore.ValidateConsumerSpec(spec); err != nil {
+		return nil, err
+	}
+	options := messagestore.SubscriptionOptions{}
+	if spec.Subscription != nil {
+		options = spec.Subscription.Clone()
+		if err := a.ValidateSubscription(ctx, spec.Destination, options); err != nil {
+			return nil, err
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
 		return nil, messagestore.ErrClosed
 	}
-	return newConsumer(a.config, spec, a.dlqProducer, a.admin)
+	spec.Subscription = &options
+	return newConsumer(ctx, a.config, spec, a.dlqProducer, a.admin)
 }
 
 func (*Administrator) Capabilities(context.Context) (messagestore.Capabilities, error) {

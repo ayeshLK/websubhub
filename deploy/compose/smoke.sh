@@ -28,7 +28,7 @@ sh "$root/deploy/compose/prepare.sh"
 docker compose -f "$compose" up -d --build --wait
 cd "$root"
 status=0
-WEBSUBHUB_ACCEPTANCE_COMPOSE=1 go test -v ./test/acceptance || status=$?
+WEBSUBHUB_ACCEPTANCE_COMPOSE=1 go test -count=1 -v ./test/acceptance || status=$?
 if [ "$status" -ne 0 ]; then
   docker compose -f "$compose" ps --all
   docker compose -f "$compose" exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --all-groups --describe || true

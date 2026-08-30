@@ -118,7 +118,7 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 	}
 	protocol, err := resourcehub.New(cfg, resourcehub.Dependencies{
 		Events: store, Projection: projection, Secrets: secretProvider, Callbacks: callbackPolicy,
-		Authorization: verifier, Content: ingestor, VerificationClient: callbackClient,
+		Authorization: verifier, Content: ingestor, Subscriptions: administrator, VerificationClient: callbackClient,
 	})
 	if err != nil {
 		return err

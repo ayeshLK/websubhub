@@ -34,7 +34,7 @@ WebSubHub puts an HTTP-native boundary around those broker responsibilities:
 - publishers and subscribers integrate with ordinary HTTP;
 - callbacks are verified before a subscription becomes active;
 - accepted content is persisted before durable acceptance is returned;
-- each subscription owns independent delivery progress and retry behavior;
+- by default, each subscription owns independent delivery progress and retry behavior;
 - provider details remain behind a capability-aware MessageStore contract;
 - callback SSRF controls, JWT authorization, secret protection, health, and
   diagnostics are product responsibilities rather than application glue.
@@ -71,6 +71,8 @@ The current implementation provides:
 - exact publisher payload and complete `Content-Type` preservation;
 - sequential per-subscription delivery with stable message IDs and WebSub HMAC
   signatures;
+- optional Kafka consumer-group load balancing and explicit partition
+  assignment for delivery subscriptions;
 - HTTP-managed or MessageStore-managed retry, stale state, HTTP `410 Gone`
   removal, and durable dead-letter handling;
 - stable hub ownership so two hubs project all state while only the recorded
@@ -102,6 +104,25 @@ flowchart LR
 Every hub consumes the complete product state. A subscription's persisted
 `server_id` selects its delivery owner in the preview; automatic takeover and
 fencing are deferred.
+
+## Kafka delivery options
+
+Kafka BYOB subscribers can opt into provider-specific delivery behavior with
+non-standard subscription form fields:
+
+- `kafka.consumer_group` selects a shared Kafka consumer group. Subscriptions
+  using the same value compete for records, so each content record is delivered
+  to one of their callbacks rather than independently to every callback.
+- `kafka.topic_partitions` selects a comma-separated set of decimal partition
+  IDs. Only those operator-provisioned partitions are consumed, and committed
+  progress resumes after reconnect or restart.
+
+The fields are mutually exclusive. WebSubHub validates them asynchronously
+before callback intent verification. Confirmed subscriber errors produce the
+existing `hub.mode=denied` callback; Kafka availability or authorization errors
+remain operational failures. These values are not credential fields or product
+identities and are omitted from management responses, metrics, and logs.
+Delivery remains at least once in both modes.
 
 ## Quick start
 
@@ -138,7 +159,7 @@ The smoke test:
    JWT/subscriber fixture;
 4. exercises authentication, registration, verification, exact content,
    signed delivery, retry, DLQ, stale/removal behavior, cross-hub projection,
-   and owner restart recovery;
+   custom-group and explicit-partition delivery, shared progress, and owner restart recovery;
 5. removes its containers, network, and Kafka volume when it exits.
 
 Generated local credentials remain under

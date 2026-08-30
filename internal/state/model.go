@@ -46,19 +46,20 @@ type Topic struct {
 }
 
 type Subscription struct {
-	ID                    string             `json:"id"`
-	TopicID               string             `json:"topic_id"`
-	TopicURL              string             `json:"topic_url"`
-	CallbackURL           string             `json:"callback_url"`
-	SecretCiphertext      []byte             `json:"secret_ciphertext,omitempty"`
-	SecretKeyID           string             `json:"secret_key_id,omitempty"`
-	LeaseStartedAt        time.Time          `json:"lease_started_at"`
-	EffectiveLeaseSeconds string             `json:"effective_lease_seconds,omitempty"`
-	ServerID              string             `json:"server_id"`
-	ConsumerID            string             `json:"consumer_id"`
-	Status                SubscriptionStatus `json:"status"`
-	StaleReason           string             `json:"stale_reason,omitempty"`
-	Revision              uint64             `json:"revision"`
+	ID                    string              `json:"id"`
+	TopicID               string              `json:"topic_id"`
+	TopicURL              string              `json:"topic_url"`
+	CallbackURL           string              `json:"callback_url"`
+	SecretCiphertext      []byte              `json:"secret_ciphertext,omitempty"`
+	SecretKeyID           string              `json:"secret_key_id,omitempty"`
+	LeaseStartedAt        time.Time           `json:"lease_started_at"`
+	EffectiveLeaseSeconds string              `json:"effective_lease_seconds,omitempty"`
+	ServerID              string              `json:"server_id"`
+	ConsumerID            string              `json:"consumer_id"`
+	Parameters            map[string][]string `json:"parameters,omitempty"`
+	Status                SubscriptionStatus  `json:"status"`
+	StaleReason           string              `json:"stale_reason,omitempty"`
+	Revision              uint64              `json:"revision"`
 }
 
 type Snapshot struct {

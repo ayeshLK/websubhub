@@ -113,16 +113,49 @@ func TestComposeResourceLifecycle(t *testing.T) {
 			"hub.verify": {"sync"}, "hub.lease_seconds": {"300"}, "hub.secret": {"compose-secret"},
 		})
 	}
-	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool {
-		return a.Revision >= 6 && b.Revision >= 6 && statusCount(a, "active") == 5 && statusCount(b, "active") == 5
+	for _, path := range []string{"/callback-group-a", "/callback-group-b"} {
+		control(t, ctx, client, path, http.StatusNoContent)
+		formEventuallyStatus(t, ctx, client, token, hubA, http.StatusAccepted, url.Values{
+			"hub.mode": {"subscribe"}, "hub.topic": {topicURL}, "hub.callback": {"http://fixture:8082" + path},
+			"hub.verify": {"sync"}, "hub.lease_seconds": {"300"}, "kafka.consumer_group": {"compose-workers"},
+		})
+	}
+	control(t, ctx, client, "/callback-explicit", http.StatusNoContent)
+	formEventuallyStatus(t, ctx, client, token, hubA, http.StatusAccepted, url.Values{
+		"hub.mode": {"subscribe"}, "hub.topic": {topicURL}, "hub.callback": {"http://fixture:8082/callback-explicit"},
+		"hub.verify": {"sync"}, "hub.lease_seconds": {"300"}, "kafka.topic_partitions": {"0"},
 	})
-	waitLocalSubscriptionCount(t, ctx, client, token, 5)
+	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool {
+		return a.Revision >= 9 && b.Revision >= 9 && statusCount(a, "active") == 8 && statusCount(b, "active") == 8
+	})
+	waitLocalSubscriptionCount(t, ctx, client, token, 8)
+	for path := range controls {
+		control(t, ctx, client, path, http.StatusNoContent)
+	}
+	publish(t, ctx, client, token, hubA, []byte(`{"order":"readiness-probe"}`))
+	probeCount := 1
+	waitReceipts(t, ctx, client, func(receipts map[string]receipt) bool {
+		if receipts["/callback-explicit"].Count == 0 {
+			publish(t, ctx, client, token, hubA, []byte(`{"order":"readiness-probe"}`))
+			probeCount++
+			return false
+		}
+		return receipts["/callback-success"].Count >= probeCount && receipts["/callback-retry"].Count >= probeCount &&
+			receipts["/callback-dlq"].Count >= probeCount && receipts["/callback-stale"].Count >= probeCount &&
+			receipts["/callback-gone"].Count >= probeCount &&
+			receipts["/callback-group-a"].Count+receipts["/callback-group-b"].Count >= probeCount
+	})
+	resetReceipts(t, ctx, client)
+	for path, status := range controls {
+		control(t, ctx, client, path, status)
+	}
 
 	payload := []byte(`{"order":"compose-1"}`)
 	publish(t, ctx, client, token, hubA, payload)
 	first := waitReceipts(t, ctx, client, func(receipts map[string]receipt) bool {
 		return receipts["/callback-success"].Count == 1 && receipts["/callback-retry"].Count >= 2 &&
-			receipts["/callback-dlq"].Count == 1 && receipts["/callback-stale"].Count == 1 && receipts["/callback-gone"].Count == 1
+			receipts["/callback-dlq"].Count == 1 && receipts["/callback-stale"].Count == 1 && receipts["/callback-gone"].Count == 1 &&
+			receipts["/callback-group-a"].Count+receipts["/callback-group-b"].Count == 1 && receipts["/callback-explicit"].Count == 1
 	})
 	success := first["/callback-success"]
 	if success.BodyBase64 != base64.StdEncoding.EncodeToString(payload) || success.ContentType != "application/json" ||
@@ -142,11 +175,23 @@ func TestComposeResourceLifecycle(t *testing.T) {
 	restartHubA(t, ctx)
 	waitReady(t, ctx, client, operationsA)
 	publish(t, ctx, client, token, hubB, []byte(`{"order":"compose-2"}`))
-	waitReceipts(t, ctx, client, func(receipts map[string]receipt) bool {
+	second := waitReceipts(t, ctx, client, func(receipts map[string]receipt) bool {
 		return receipts["/callback-success"].Count >= 2 && receipts["/callback-retry"].Count > settled["/callback-retry"].Count &&
-			receipts["/callback-dlq"].Count == 2 && receipts["/callback-stale"].Count == 1 && receipts["/callback-gone"].Count == 1
+			receipts["/callback-dlq"].Count == 2 && receipts["/callback-stale"].Count == 1 && receipts["/callback-gone"].Count == 1 &&
+			receipts["/callback-group-a"].Count+receipts["/callback-group-b"].Count >= 2 && receipts["/callback-explicit"].Count >= 2
 	})
-	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool { return a.Revision == b.Revision && a.Revision >= 8 })
+	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool { return a.Revision == b.Revision && a.Revision >= 11 })
+
+	formEventuallyStatus(t, ctx, client, token, hubB, http.StatusAccepted, url.Values{
+		"hub.mode": {"unsubscribe"}, "hub.topic": {topicURL}, "hub.callback": {"http://fixture:8082/callback-group-a"}, "hub.verify": {"sync"},
+	})
+	waitSubscriptions(t, ctx, client, token, func(a, b subscriptions) bool {
+		return statusFor(a, "/callback-group-a") == "removed" && statusFor(b, "/callback-group-a") == "removed"
+	})
+	publish(t, ctx, client, token, hubB, []byte(`{"order":"compose-3"}`))
+	waitReceipts(t, ctx, client, func(receipts map[string]receipt) bool {
+		return receipts["/callback-group-b"].Count > second["/callback-group-b"].Count
+	})
 }
 
 func composeToken(t *testing.T, ctx context.Context) string {
@@ -247,6 +292,15 @@ func control(t *testing.T, ctx context.Context, client *http.Client, path string
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("control status = %d", response.StatusCode)
+	}
+}
+
+func resetReceipts(t *testing.T, ctx context.Context, client *http.Client) {
+	t.Helper()
+	response := request(t, ctx, client, http.MethodPost, fixture+"/reset", "", nil, "")
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("reset status = %d", response.StatusCode)
 	}
 }
 

@@ -64,6 +64,10 @@ func (a administrator) EnsureDestination(_ context.Context, spec messagestore.De
 	}
 	return nil
 }
+func (administrator) ValidateSubscription(_ context.Context, _ messagestore.Destination, options messagestore.SubscriptionOptions) error {
+	_, err := messagestore.NewSubscriptionOptions(options.Parameters)
+	return err
+}
 func (a administrator) OpenConsumer(_ context.Context, spec messagestore.ConsumerSpec) (messagestore.Consumer, error) {
 	if spec.ID == "" || spec.Destination == "" {
 		return nil, fmt.Errorf("consumer ID and destination are required")
