@@ -131,13 +131,14 @@ equivalent for Kafka. Custom behavior is strictly opt-in. A shared custom group
 must not be deleted when one member unsubscribes. Explicit assignment honors
 the `ConsumerSpec` start position when no committed offset exists.
 
-Persisting subscription parameters replaces state schema version 1. The
-implementation must define state schema version 2, provide an explicit offline
-v1-to-v2 migration that initializes parameters as absent, and include recovery
-fixtures for both versions. Runtime startup must not rewrite version 1 data.
-Once version 2 records are written, downgrade to a version-1-only binary is not
-supported; recovery requires restoring a pre-migration backup.
-The operator procedure is documented in [Offline state schema v1-to-v2 migration](../../migrating-state-v1-to-v2.md).
+No WebSubHub release or image predates this decision, so the subscription
+parameter field is incorporated directly into the initial state schema version
+1. Persisted development state produced by earlier unreleased commits has no
+compatibility guarantee and must be discarded and recreated rather than
+migrated. This is a pre-release exception, not a change to the compatibility
+rule in ADR 0004. After the first release, persisted-schema changes require a
+new version and an explicit offline migration; runtime startup continues to
+reject unknown versions and never silently rewrites state.
 
 ## Consequences
 

@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	EventContentType    = "application/vnd.websubhub.state-event+json; version=2"
-	SnapshotContentType = "application/vnd.websubhub.state-snapshot+json; version=2"
+	EventContentType    = "application/vnd.websubhub.state-event+json; version=1"
+	SnapshotContentType = "application/vnd.websubhub.state-snapshot+json; version=1"
 	snapshotConsumerID  = messagestore.ConsumerID("state-snapshot-loader")
 )
 
