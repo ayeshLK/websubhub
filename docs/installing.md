@@ -88,7 +88,7 @@ Before startup, replace the example values for:
 - hub-to-consolidator endpoint and mTLS identities;
 - callback allowlists, retry policy, retention, and destination names.
 
-Starting with v0.5.1, both hub listener modes are required. Existing v0.5.0
+Starting with v0.6.0, both hub listener modes are required. Existing v0.5.0
 configurations must add `[server.auth]` and `[operations.auth]` with an explicit
 `none` or `jwt` mode. An omitted or unknown mode fails startup. `none` is for
 local evaluation or a separately protected trusted boundary; it authorizes all

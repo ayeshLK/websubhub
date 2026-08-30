@@ -1,6 +1,6 @@
 # ADR 0021: Explicit API authentication modes
 
-- Status: Accepted for v0.5.1
+- Status: Accepted for v0.6.0
 - Date: 2026-08-30
 - Supersedes: The mandatory-JWT inbound endpoint decision in ADR 0016 and
   unconditional operations-scope requirement in ADR 0017

@@ -21,7 +21,7 @@ triage.
 ## Current status
 
 The repository has published the `v0.5.0` Kafka BYOB developer preview. Main
-is developing explicit unauthenticated or JWT listener modes for v0.5.1, with
+is developing explicit unauthenticated or JWT listener modes for v0.6.0, with
 JWT authentication and scope authorization retained for secured deployments,
 callback SSRF defenses, encrypted persisted subscription secrets, durable state/content handling,
 at-least-once delivery, and operational inspection. It has not completed
