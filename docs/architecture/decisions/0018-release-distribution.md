@@ -62,9 +62,10 @@ preview publishes the exact `X.Y.Z` tag only. It does not publish mutable
 metadata, BuildKit SBOM and provenance attestations, GitHub provenance, and a
 keyless Sigstore signature over the image digest.
 
-Publication is tag-triggered, requires the tag to be strict semantic version
-syntax and point to a commit contained in `main`, passes the complete source
-and Kafka provider integration gates, and runs through the protected GitHub `release`
+As refined by ADR 0020, publication is workflow-dispatched from `main`; the
+workflow calculates and creates the strict semantic-version tag for the
+verified `main` commit. Publication passes the complete source and Kafka
+provider integration gates and runs through the protected GitHub `release`
 environment. The GitHub Release remains a draft until both Docker images,
 signatures, and attestations succeed.
 

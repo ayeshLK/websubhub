@@ -348,8 +348,10 @@ The repository has completed the implementation slices through the Kafka
 Compose acceptance topology and now includes guarded release foundations for
 independent six-platform archives and the two Docker Hub images. No runtime
 release has been published. Work remaining before the first developer preview
-includes expanded failure qualification, operational wiring, repository
-release-environment setup, and an end-to-end release-candidate rehearsal.
+is limited to automated release-tag protection and an end-to-end
+release-candidate rehearsal. Broader request-admission and load/isolation
+qualification is deferred under
+[issue #11](https://github.com/ayeshLK/websubhub/issues/11).
 
 Later releases add the gated CloudEvents event-stream contract, renewal and
 lease expiry, automatic ownership transfer and fencing, richer administration,

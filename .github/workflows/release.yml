@@ -1,15 +1,24 @@
 name: Release
+run-name: Release from main (${{ inputs.bump }})
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semantic version increment after the first v0.5.0 release
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -18,6 +27,9 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       build-date: ${{ steps.release.outputs.build-date }}
+      previous-tag: ${{ steps.release.outputs.previous-tag }}
+      sha: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
     services:
       kafka:
@@ -47,21 +59,46 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate release tag and ancestry
+      - name: Calculate and validate release candidate
         id: release
         shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "release tag must be strict vX.Y.Z semantic version syntax" >&2
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "release workflow must be dispatched from main" >&2
             exit 1
           fi
+          git fetch --force --tags origin
           git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
-            echo "release tag commit is not contained in main" >&2
+          if [[ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]]; then
+            echo "dispatched commit is no longer the current main commit" >&2
             exit 1
-          }
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+          calculation=$(sh scripts/next-release-version.sh "$BUMP")
+          printf '%s\n' "$calculation" >> "$GITHUB_OUTPUT"
+          tag=$(printf '%s\n' "$calculation" | sed -n 's/^tag=//p')
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            echo "calculated release tag already exists: $tag" >&2
+            exit 1
+          fi
+
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo "build-date=$(git show -s --format=%cI "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+      - name: Summarize release candidate
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          SHA: ${{ steps.release.outputs.sha }}
+          PREVIOUS_TAG: ${{ steps.release.outputs.previous-tag }}
+        run: |
+          {
+            echo "## Release candidate"
+            echo
+            echo "- Tag: `$TAG`"
+            echo "- Commit: `$SHA`"
+            echo "- Previous stable tag: `${PREVIOUS_TAG:-none}`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -85,11 +122,52 @@ jobs:
       id-token: write
       packages: write
     steps:
-      - name: Check out full history
+      - name: Check out verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: false
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: true
+      - name: Create immutable release tag
+        env:
+          BUMP: ${{ inputs.bump }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          git fetch --force --tags origin
+          git fetch --no-tags origin main
+          if [[ "$(git rev-parse origin/main)" != "$SHA" ]]; then
+            echo "verified commit is no longer the current main commit" >&2
+            exit 1
+          fi
+          current_tag=$(sh scripts/next-release-version.sh "$BUMP" | sed -n "s/^tag=//p")
+          if [[ "$current_tag" != "$TAG" ]]; then
+            echo "release candidate changed after verification: $TAG -> $current_tag" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "release tag already exists: $TAG" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$SHA" -m "WebSubHub $TAG"
+          git push origin "refs/tags/$TAG"
+      - name: Generate deterministic release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS_TAG: ${{ needs.verify.outputs.previous-tag }}
+          SHA: ${{ needs.verify.outputs.sha }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        shell: bash
+        run: |
+          cp .github/release-notes/developer-preview.md release-notes.md
+          printf '\n## Changes\n\n' >> release-notes.md
+          args=(--method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f "tag_name=$TAG" -f "target_commitish=$SHA")
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            args+=(-f "previous_tag_name=$PREVIOUS_TAG")
+          fi
+          gh api "${args[@]}" --jq .body >> release-notes.md
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -104,9 +182,11 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.18.0
-          args: release --clean
+          args: release --clean --release-notes release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ needs.verify.outputs.tag }}
+          GORELEASER_PREVIOUS_TAG: ${{ needs.verify.outputs.previous-tag }}
       - name: Verify component archive layout
         run: sh scripts/verify-release.sh
       - name: Attest tarball provenance
@@ -134,8 +214,8 @@ jobs:
           push: true
           tags: docker.io/ayeshalmeida/websubhub:${{ needs.verify.outputs.version }}
           build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
+            VERSION=${{ needs.verify.outputs.tag }}
+            COMMIT=${{ needs.verify.outputs.sha }}
             BUILD_DATE=${{ needs.verify.outputs.build-date }}
           sbom: true
           provenance: mode=max
@@ -149,8 +229,8 @@ jobs:
           push: true
           tags: docker.io/ayeshalmeida/websubhub-consolidator:${{ needs.verify.outputs.version }}
           build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
+            VERSION=${{ needs.verify.outputs.tag }}
+            COMMIT=${{ needs.verify.outputs.sha }}
             BUILD_DATE=${{ needs.verify.outputs.build-date }}
           sbom: true
           provenance: mode=max
@@ -176,4 +256,5 @@ jobs:
       - name: Publish GitHub release draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false --verify-tag
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --verify-tag
