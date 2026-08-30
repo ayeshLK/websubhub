@@ -24,7 +24,7 @@ behavior over MessageStore and must not import Kafka. Do not expose provider
 offsets, partitions, group IDs, handles, endpoint IDs, or credentials as
 product identities.
 
-## Implementation handoff: 28 August 2026
+## Implementation handoff: 30 August 2026
 
 The Kafka BYOB v0.5 preview now includes separate `websubhub` and
 `websubhub-consolidator` binaries, TOML configuration with hierarchical
@@ -33,9 +33,11 @@ hub-to-consolidator mTLS, Kafka-backed MessageStore and StateStore behavior,
 resource-topic ingestion and at-least-once delivery, and a two-hub Docker
 Compose acceptance topology using `apache/kafka:4.1.0`.
 
-Pull request #6 was merged into `main` at commit
-`2f4b803fccb9fd847e4ea7fb9f81700c4affa9c4`. The active release-foundation
-work is on branch `feat/release-distribution`.
+Pull requests #6, #8, #10, #12, #13, #14, and #15 are merged. Release
+`v0.5.0` was published on 30 August 2026 from tagged source commit
+`bb8ff3d65b1a8f09032c75f12dbc2946ec3e07b2`. Pull request #16 is the generated
+transition to `version=0.5.1-SNAPSHOT`; its CI requires maintainer approval
+before it can be reviewed and merged.
 
 ADR 0018 fixes lockstep versions with independent component packages. The
 release configuration builds 12 archives: `websubhub` and
@@ -43,10 +45,22 @@ release configuration builds 12 archives: `websubhub` and
 and `arm64`. Production images are separate Linux `amd64`/`arm64` manifests at
 `ayeshalmeida/websubhub` and `ayeshalmeida/websubhub-consolidator`; do not
 substitute another Docker Hub namespace. Preview images publish only exact
-semantic-version tags, not `latest`. No release or image has been published
-yet. Docker Hub repositories, `DOCKERHUB_TOKEN`, and the protected GitHub
-`release` environment must be configured before creating the first tag.
-Native macOS/Windows signing remains deferred to issue #7.
+semantic-version tags, not `latest`. The Docker Hub repositories, scoped
+`DOCKERHUB_TOKEN`, protected GitHub `release` environment, repository Actions
+pull-request permission, and immutable `v*` tag rules are configured. Native
+macOS/Windows signing remains deferred to issue #7.
+
+ADR 0020 defines the reviewed version lifecycle through `release.properties`,
+the `Prepare release` workflow, and the protected `Release` workflow. Do not
+manually create, move, or delete release tags. The first `v0.5.0` attempt
+created its immutable tag and then failed because generated release notes made
+the checkout dirty. PR #15 moved those notes to `$RUNNER_TEMP` and added a
+narrow recovery path for a tag with no published release or artifacts. That
+recovery must build the tagged source, may accept only documented
+release-automation changes after the tag, and must fail closed for product-code
+changes, tag-target mismatches, or an existing release/artifact. `v0.5.0` then
+published successfully; this recovery path is no longer applicable to that
+version.
 
 PR #6 implements the protected internal control-plane BFF query contract:
 
@@ -68,11 +82,12 @@ existing `websubhub:ops:read` scope. Cursor pagination is reserved but rejected
 in v0.5. `GET /v1/dlq`, tenant/project semantics, management mutations, and the
 nested topic-subscriptions convenience route are deferred.
 
-Issue #5 should remain open after PR #6 until the management polling workload
-and acceptable publication/delivery regression threshold are agreed. Dedicated
-management-query concurrency/rate limits and a load/isolation benchmark are
-still required. Do not invent a threshold or claim this performance acceptance
-criterion has passed.
+Issue #5 was closed after the management query API shipped. Product-wide
+request admission control for both hub and management APIs, plus the
+load/isolation benchmark and an agreed publication/delivery regression
+threshold, is deferred until after v0.5.0 and tracked by issue #11. Do not add a
+management-only throttle, invent a threshold, or claim this performance
+acceptance criterion has passed.
 
 ## Required workflow
 
