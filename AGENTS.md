@@ -24,20 +24,22 @@ behavior over MessageStore and must not import Kafka. Do not expose provider
 offsets, partitions, group IDs, handles, endpoint IDs, or credentials as
 product identities.
 
-## Implementation handoff: 30 August 2026
+## Implementation handoff: 31 August 2026
 
-The Kafka BYOB v0.5 preview now includes separate `websubhub` and
+The Kafka BYOB preview now includes separate `websubhub` and
 `websubhub-consolidator` binaries, TOML configuration with hierarchical
 `WEBSUBHUB__` overrides, explicit none/JWT public and operations
-authentication, optional hub-to-consolidator mTLS, Kafka-backed MessageStore and StateStore behavior,
-resource-topic ingestion and at-least-once delivery, and a two-hub Docker
-Compose acceptance topology using `apache/kafka:4.1.0`.
+authentication, optional hub-to-consolidator mTLS, Kafka-backed MessageStore
+and StateStore behavior, resource-topic ingestion and at-least-once delivery,
+and a two-hub Docker Compose acceptance topology using `apache/kafka:4.1.0`.
 
-Pull requests #6, #8, #10, #12, #13, #14, and #15 are merged. Release
-`v0.5.0` was published on 30 August 2026 from tagged source commit
-`bb8ff3d65b1a8f09032c75f12dbc2946ec3e07b2`. Pull requests #16 and #17 are
-also merged;
-`main` declares `version=0.5.1-SNAPSHOT`.
+Releases `v0.5.0` and `v0.6.0` were published on 30 August 2026. The current
+release is `v0.6.0`, built from annotated tag `v0.6.0` at source commit
+`4e41d3dde79f1f8e909103a519582006dbf7ca62` after PR #21 merged. It introduces
+the explicit API authentication modes from PR #18 and remains a pre-1.0
+developer preview, regardless of the GitHub release's prerelease flag. `main`
+currently declares `version=0.6.0`; the release workflow opened green PR #22
+to advance it to `version=0.6.1-SNAPSHOT`, but that PR is not yet merged.
 
 ADR 0018 fixes lockstep versions with independent component packages. The
 release configuration builds 12 archives: `websubhub` and
@@ -45,7 +47,8 @@ release configuration builds 12 archives: `websubhub` and
 and `arm64`. Production images are separate Linux `amd64`/`arm64` manifests at
 `ayeshalmeida/websubhub` and `ayeshalmeida/websubhub-consolidator`; do not
 substitute another Docker Hub namespace. Preview images publish only exact
-semantic-version tags, not `latest`. The Docker Hub repositories, scoped
+semantic-version tags, not `latest`; adding `latest` after the v1.0 stability
+boundary is tracked by issue #19. The Docker Hub repositories, scoped
 `DOCKERHUB_TOKEN`, protected GitHub `release` environment, repository Actions
 pull-request permission, and immutable `v*` tag rules are configured. Native
 macOS/Windows signing remains deferred to issue #7.
@@ -70,7 +73,9 @@ recovery must build the tagged source, may accept only documented
 release-automation changes after the tag, and must fail closed for product-code
 changes, tag-target mismatches, or an existing release/artifact. `v0.5.0` then
 published successfully; this recovery path is no longer applicable to that
-version.
+version. The same reviewed flow prepared and published `v0.6.0`, then opened
+PR #22 for the next snapshot. Do not edit a released version back to a
+snapshot on the tagged commit.
 
 PR #6 implements the protected internal control-plane BFF query contract:
 
@@ -97,6 +102,15 @@ load/isolation benchmark and an agreed publication/delivery regression
 threshold, is deferred until after v0.5.0 and tracked by issue #11. Do not add a
 management-only throttle, invent a threshold, or claim this performance
 acceptance criterion has passed.
+
+Kafka client security supports TLS 1.2 or later with an explicit CA and server
+verification, optional client-certificate mTLS, and SASL `plain`,
+`scram-sha-256`, or `scram-sha-512`. TLS and SASL can be composed, and the hub
+and consolidator have independent Kafka identities. The real-broker CI and
+Compose acceptance topology currently exercise plaintext Kafka only; secured
+broker interoperability, failure cases, and minimum per-component Kafka ACLs
+must not be described as integration-qualified. That work is deferred to the
+v1.0 stability boundary and tracked by issue #20.
 
 ## Required workflow
 
