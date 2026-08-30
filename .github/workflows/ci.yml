@@ -47,7 +47,7 @@ jobs:
         run: make build
 
   kafka-integration:
-    name: Kafka provider conformance
+    name: Kafka provider integration
     runs-on: ubuntu-24.04
     services:
       kafka:
@@ -81,10 +81,10 @@ jobs:
         with:
           go-version: "1.25.x"
           cache: true
-      - name: Run Kafka conformance
+      - name: Run Kafka provider integration tests
         env:
           WEBSUBHUB_TEST_KAFKA_BROKERS: 127.0.0.1:9092
-        run: go test -v -run '^TestKafkaConformance$' ./internal/persistence/messagestore/kafka
+        run: make test-integration-kafka
 
   vulnerability:
     name: Vulnerability scan

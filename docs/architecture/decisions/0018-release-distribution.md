@@ -64,7 +64,7 @@ keyless Sigstore signature over the image digest.
 
 Publication is tag-triggered, requires the tag to be strict semantic version
 syntax and point to a commit contained in `main`, passes the complete source
-and Kafka conformance gates, and runs through the protected GitHub `release`
+and Kafka provider integration gates, and runs through the protected GitHub `release`
 environment. The GitHub Release remains a draft until both Docker images,
 signatures, and attestations succeed.
 

@@ -69,10 +69,10 @@ jobs:
           cache: true
       - name: Run complete source checks
         run: make check
-      - name: Run Kafka conformance
+      - name: Run Kafka provider integration tests
         env:
           WEBSUBHUB_TEST_KAFKA_BROKERS: 127.0.0.1:9092
-        run: go test -v -run '^TestKafkaConformance$' ./internal/persistence/messagestore/kafka
+        run: make test-integration-kafka
 
   publish:
     name: Publish release distributions

@@ -9,7 +9,7 @@ LDFLAGS = -s -w \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.commit=$(COMMIT) \
 	-X github.com/ayeshLK/websubhub/internal/buildinfo.date=$(BUILD_DATE)
 
-.PHONY: build check compose-smoke container-check docs-check format-check source-header-check generate-check license-check release-check release-snapshot test
+.PHONY: build check compose-smoke container-check docs-check format-check source-header-check generate-check license-check release-check release-snapshot test test-integration-kafka
 
 build:
 	mkdir -p bin
@@ -41,6 +41,11 @@ docs-check:
 
 test:
 	$(GO) test -shuffle=on ./...
+
+test-integration-kafka:
+	@test -n "$(WEBSUBHUB_TEST_KAFKA_BROKERS)" || (echo "WEBSUBHUB_TEST_KAFKA_BROKERS is required" >&2; exit 1)
+	WEBSUBHUB_TEST_KAFKA_BROKERS="$(WEBSUBHUB_TEST_KAFKA_BROKERS)" \
+		$(GO) test -v ./internal/persistence/messagestore/kafka
 
 compose-smoke:
 	sh deploy/compose/smoke.sh
