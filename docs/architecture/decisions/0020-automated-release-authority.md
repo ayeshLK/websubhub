@@ -44,11 +44,21 @@ After the preparation pull request merges, a maintainer starts the `Release`
 workflow from `main` without entering or creating a version. Before creating
 the tag, the workflow requires the dispatched ref and current remote `main`
 commit to match, requires `release.properties` to contain the corresponding
-stable version, rejects an existing candidate tag, runs the full source checks,
-and runs the Kafka provider integration suite. The protected `release`
-environment then requires approval. Its publishing job creates and pushes an
-annotated tag for the verified commit and uses that exact tag as the GoReleaser,
-binary, archive, image, signing, and attestation version.
+stable version, runs the full source checks, and runs the Kafka provider
+integration suite. The protected `release` environment then requires approval.
+Its publishing job creates and pushes an annotated tag for the verified commit
+and uses that exact tag as the GoReleaser, binary, archive, image, signing, and
+attestation version.
+
+If an interrupted attempt created the tag but no GitHub Release, image, or
+other published artifact, a later dispatch may resume that exact version. The
+tagged commit must be an ancestor of current `main`, must declare the same
+stable version, and remains the source that is tested and built. Changes after
+the tag are limited to the release workflow, its version-validation scripts,
+ADR 0020, and this release guide. Any product-code change, tag-target mismatch,
+or existing GitHub Release rejects resumption. The workflow never moves or
+recreates the tag. Any failure after a release record or another artifact
+exists consumes the version.
 
 After publication succeeds, the release workflow opens a second pull request
 that increments only the patch component and restores `-SNAPSHOT`. For example,
@@ -62,10 +72,10 @@ runs created by this token for maintainer approval; the workflows do not use a
 personal token, approve their own pull requests, or bypass branch protection.
 
 The workflow uses a single non-cancelling release concurrency group. A failed
-attempt never moves or reuses its tag. If a tag was created before a later
-publication step failed, recovery requires a reviewed property change to the
-next unused version. Tag rules must prevent manual deletion or updates while
-allowing the protected release workflow to create new `v*` tags.
+attempt never moves or recreates its tag. Apart from the narrow unpublished-tag
+resume case, recovery requires a reviewed property change to the next unused
+version. Tag rules must prevent manual deletion or updates while allowing the
+protected release workflow to create new `v*` tags.
 
 Release notes prepend a maintained developer-preview disclosure to GitHub's
 generated change summary. The GitHub Release remains a draft until both images,

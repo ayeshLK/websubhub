@@ -105,9 +105,15 @@ case "$mode" in
 		printf 'version=%s\n' "${next_version%-SNAPSHOT}"
 		exit 0
 		;;
+	release)
+		if [ "$state" != release ]; then
+			echo "only a stable version can be released" >&2
+			exit 1
+		fi
+		;;
 	inspect) ;;
 	*)
-		echo "release version mode must be inspect, prepare, or next-snapshot" >&2
+		echo "release version mode must be inspect, prepare, release, or next-snapshot" >&2
 		exit 1
 		;;
 esac
@@ -141,9 +147,27 @@ if [ -n "$latest" ]; then
 
 	if [ "$major" -lt "$previous_major" ] ||
 		{ [ "$major" -eq "$previous_major" ] && [ "$minor" -lt "$previous_minor" ]; } ||
-		{ [ "$major" -eq "$previous_major" ] && [ "$minor" -eq "$previous_minor" ] && [ "$patch" -le "$previous_patch" ]; }; then
+		{ [ "$major" -eq "$previous_major" ] && [ "$minor" -eq "$previous_minor" ] && [ "$patch" -lt "$previous_patch" ]; }; then
 		echo "declared version $version must be newer than $previous_version" >&2
 		exit 1
+	fi
+
+	if [ "$major" -eq "$previous_major" ] && [ "$minor" -eq "$previous_minor" ] && [ "$patch" -eq "$previous_patch" ]; then
+		if [ "$mode" != release ]; then
+			echo "declared version $version must be newer than $previous_version" >&2
+			exit 1
+		fi
+
+		current=$latest
+		latest=
+		if [ "$#" -lt 3 ]; then
+			for candidate in $(git tag --list 'v*' --sort=-version:refname); do
+				if [ "$candidate" != "$current" ] && printf '%s\n' "$candidate" | grep -Eq "$strict_tag"; then
+					latest=$candidate
+					break
+				fi
+			done
+		fi
 	fi
 fi
 

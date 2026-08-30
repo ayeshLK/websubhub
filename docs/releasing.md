@@ -119,11 +119,16 @@ signing. The container check builds both production targets and executes their
 10. Approve CI on the generated next-development pull request, verify its patch
     increment, and merge it.
 
-Do not manually create a release tag. Do not reuse or move a version tag after
-failure. Diagnose the draft and partial registry state, fix the source, and use
-a reviewed property change plus the preparation workflow to consume the next
-unused version. If publication succeeds but the next-development pull request
-fails, create that same patch-snapshot change through a normal pull request.
+Do not manually create, move, or delete a release tag. If failure occurs after
+the tag is created but before any GitHub Release or image exists, fix the
+workflow and dispatch it again. The tagged source remains the build input;
+`main` may differ only in the documented release-automation and documentation
+files. If the tag is not an ancestor, product code changed, or any release
+record or other artifact exists, diagnose the partial state and use a reviewed
+property change
+plus the preparation workflow to consume the next unused version. If
+publication succeeds but the next-development pull request fails, create that
+same patch-snapshot change through a normal pull request.
 
 ## Consumer verification
 

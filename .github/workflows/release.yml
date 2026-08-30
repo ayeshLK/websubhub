@@ -18,6 +18,7 @@ jobs:
     outputs:
       build-date: ${{ steps.release.outputs.build-date }}
       previous-tag: ${{ steps.release.outputs.previous-tag }}
+      dispatch-sha: ${{ steps.release.outputs.dispatch-sha }}
       sha: ${{ steps.release.outputs.sha }}
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
@@ -52,6 +53,8 @@ jobs:
       - name: Calculate and validate release candidate
         id: release
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "release workflow must be dispatched from main" >&2
@@ -64,26 +67,53 @@ jobs:
             exit 1
           fi
 
-          calculation=$(sh scripts/release-version.sh inspect)
-          state=$(printf '%s\n' "$calculation" | sed -n 's/^state=//p')
-          if [[ "$state" != "release" ]]; then
-            echo "release.properties must contain a stable version prepared through the Prepare release workflow" >&2
-            exit 1
-          fi
+          calculation=$(sh scripts/release-version.sh release)
           printf '%s\n' "$calculation" >> "$GITHUB_OUTPUT"
           tag=$(printf '%s\n' "$calculation" | sed -n 's/^tag=//p')
+          source_sha=$GITHUB_SHA
+          resume=false
           if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
-            echo "calculated release tag already exists: $tag" >&2
-            exit 1
+            source_sha=$(git rev-list -n 1 "refs/tags/$tag")
+            if ! git merge-base --is-ancestor "$source_sha" "$GITHUB_SHA"; then
+              echo "existing release tag $tag is not an ancestor of current main" >&2
+              exit 1
+            fi
+
+            allowed='^(\.github/workflows/release\.yml|scripts/release-version\.sh|scripts/verify-release-version\.sh|docs/architecture/decisions/0020-automated-release-authority\.md|docs/releasing\.md)$'
+            unexpected=$(git diff --name-only "$source_sha" "$GITHUB_SHA" | grep -Ev "$allowed" || true)
+            if [[ -n "$unexpected" ]]; then
+              echo "current main contains non-release changes after $tag:" >&2
+              printf '%s\n' "$unexpected" >&2
+              exit 1
+            fi
+
+            git show "$source_sha:release.properties" > "$RUNNER_TEMP/tag-release.properties"
+            tagged=$(sh scripts/release-version.sh release "$RUNNER_TEMP/tag-release.properties" - | sed -n 's/^tag=//p')
+            if [[ "$tagged" != "$tag" ]]; then
+              echo "tagged source declares $tagged, not $tag" >&2
+              exit 1
+            fi
+            if release_lookup=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>&1); then
+              echo "a GitHub Release already exists for $tag; this workflow cannot resume it" >&2
+              exit 1
+            elif ! grep -q 'HTTP 404' <<< "$release_lookup"; then
+              echo "could not verify that no GitHub Release exists for $tag" >&2
+              printf '%s\n' "$release_lookup" >&2
+              exit 1
+            fi
+            resume=true
           fi
 
-          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-          echo "build-date=$(git show -s --format=%cI "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+          echo "resume=$resume" >> "$GITHUB_OUTPUT"
+          echo "dispatch-sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "build-date=$(git show -s --format=%cI "$source_sha")" >> "$GITHUB_OUTPUT"
       - name: Summarize release candidate
         env:
           TAG: ${{ steps.release.outputs.tag }}
           SHA: ${{ steps.release.outputs.sha }}
           PREVIOUS_TAG: ${{ steps.release.outputs.previous-tag }}
+          RESUME: ${{ steps.release.outputs.resume }}
         run: |
           {
             echo "## Release candidate"
@@ -91,7 +121,12 @@ jobs:
             echo "- Tag: \`$TAG\`"
             echo "- Commit: \`$SHA\`"
             echo "- Previous stable tag: \`${PREVIOUS_TAG:-none}\`"
+            echo "- Resume existing tag: \`$RESUME\`"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Check out verified release source
+        env:
+          SOURCE_SHA: ${{ steps.release.outputs.sha }}
+        run: git checkout --detach "$SOURCE_SHA"
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -121,30 +156,49 @@ jobs:
           fetch-depth: 0
           ref: ${{ needs.verify.outputs.sha }}
           persist-credentials: true
-      - name: Create immutable release tag
+      - name: Create or verify immutable release tag
         env:
+          DISPATCH_SHA: ${{ needs.verify.outputs.dispatch-sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.verify.outputs.tag }}
           SHA: ${{ needs.verify.outputs.sha }}
         run: |
           git fetch --force --tags origin
           git fetch --no-tags origin main
-          if [[ "$(git rev-parse origin/main)" != "$SHA" ]]; then
-            echo "verified commit is no longer the current main commit" >&2
+          if [[ "$(git rev-parse origin/main)" != "$DISPATCH_SHA" ]]; then
+            echo "verified main commit has changed" >&2
             exit 1
           fi
-          current_tag=$(sh scripts/release-version.sh inspect | sed -n "s/^tag=//p")
-          if [[ "$current_tag" != "$TAG" ]]; then
-            echo "release candidate changed after verification: $TAG -> $current_tag" >&2
+          declared=$(sed -n 's/^version=//p' release.properties)
+          if [[ "v$declared" != "$TAG" ]]; then
+            echo "release source declares $declared, not $TAG" >&2
             exit 1
           fi
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "release tag already exists: $TAG" >&2
-            exit 1
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            target=$(git rev-list -n 1 "refs/tags/$TAG")
+            if [[ "$target" != "$SHA" ]]; then
+              echo "existing release tag $TAG targets $target, not $SHA" >&2
+              exit 1
+            fi
+            if release_lookup=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" 2>&1); then
+              echo "a GitHub Release already exists for $TAG; refusing to overwrite it" >&2
+              exit 1
+            elif ! grep -q 'HTTP 404' <<< "$release_lookup"; then
+              echo "could not verify that no GitHub Release exists for $TAG" >&2
+              printf '%s\n' "$release_lookup" >&2
+              exit 1
+            fi
+            echo "resuming $TAG at the verified tagged source"
+          else
+            if [[ "$SHA" != "$DISPATCH_SHA" ]]; then
+              echo "a new tag can only be created for the verified main commit" >&2
+              exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" "$SHA" -m "WebSubHub $TAG"
+            git push origin "refs/tags/$TAG"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" "$SHA" -m "WebSubHub $TAG"
-          git push origin "refs/tags/$TAG"
       - name: Generate deterministic release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -153,13 +207,13 @@ jobs:
           TAG: ${{ needs.verify.outputs.tag }}
         shell: bash
         run: |
-          cp .github/release-notes/developer-preview.md release-notes.md
-          printf '\n## Changes\n\n' >> release-notes.md
+          cp .github/release-notes/developer-preview.md "$RUNNER_TEMP/release-notes.md"
+          printf '\n## Changes\n\n' >> "$RUNNER_TEMP/release-notes.md"
           args=(--method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f "tag_name=$TAG" -f "target_commitish=$SHA")
           if [[ -n "$PREVIOUS_TAG" ]]; then
             args+=(-f "previous_tag_name=$PREVIOUS_TAG")
           fi
-          gh api "${args[@]}" --jq .body >> release-notes.md
+          gh api "${args[@]}" --jq .body >> "$RUNNER_TEMP/release-notes.md"
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -174,7 +228,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.18.0
-          args: release --clean --release-notes release-notes.md
+          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ needs.verify.outputs.tag }}
