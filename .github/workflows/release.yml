@@ -1,18 +1,8 @@
 name: Release
-run-name: Release from main (${{ inputs.bump }})
+run-name: Release declared version from main
 
 on:
   workflow_dispatch:
-    inputs:
-      bump:
-        description: Semantic version increment after the first v0.5.0 release
-        required: true
-        default: patch
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
 
 permissions:
   contents: read
@@ -62,8 +52,6 @@ jobs:
       - name: Calculate and validate release candidate
         id: release
         shell: bash
-        env:
-          BUMP: ${{ inputs.bump }}
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "release workflow must be dispatched from main" >&2
@@ -76,7 +64,12 @@ jobs:
             exit 1
           fi
 
-          calculation=$(sh scripts/next-release-version.sh "$BUMP")
+          calculation=$(sh scripts/release-version.sh inspect)
+          state=$(printf '%s\n' "$calculation" | sed -n 's/^state=//p')
+          if [[ "$state" != "release" ]]; then
+            echo "release.properties must contain a stable version prepared through the Prepare release workflow" >&2
+            exit 1
+          fi
           printf '%s\n' "$calculation" >> "$GITHUB_OUTPUT"
           tag=$(printf '%s\n' "$calculation" | sed -n 's/^tag=//p')
           if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
@@ -95,9 +88,9 @@ jobs:
           {
             echo "## Release candidate"
             echo
-            echo "- Tag: `$TAG`"
-            echo "- Commit: `$SHA`"
-            echo "- Previous stable tag: `${PREVIOUS_TAG:-none}`"
+            echo "- Tag: \`$TAG\`"
+            echo "- Commit: \`$SHA\`"
+            echo "- Previous stable tag: \`${PREVIOUS_TAG:-none}\`"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -130,7 +123,6 @@ jobs:
           persist-credentials: true
       - name: Create immutable release tag
         env:
-          BUMP: ${{ inputs.bump }}
           TAG: ${{ needs.verify.outputs.tag }}
           SHA: ${{ needs.verify.outputs.sha }}
         run: |
@@ -140,7 +132,7 @@ jobs:
             echo "verified commit is no longer the current main commit" >&2
             exit 1
           fi
-          current_tag=$(sh scripts/next-release-version.sh "$BUMP" | sed -n "s/^tag=//p")
+          current_tag=$(sh scripts/release-version.sh inspect | sed -n "s/^tag=//p")
           if [[ "$current_tag" != "$TAG" ]]; then
             echo "release candidate changed after verification: $TAG -> $current_tag" >&2
             exit 1
@@ -258,3 +250,60 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.verify.outputs.tag }}
         run: gh release edit "$TAG" --draft=false --verify-tag
+
+  advance-development:
+    name: Open next development version pull request
+    needs:
+      - verify
+      - publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: true
+      - name: Advance to the next patch snapshot
+        id: next
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          git fetch --force --tags origin
+          current_tag=$(sh scripts/release-version.sh inspect release.properties - | sed -n 's/^tag=//p')
+          state=$(sh scripts/release-version.sh inspect release.properties - | sed -n 's/^state=//p')
+          if [[ "$state" != "release" || "$current_tag" != "$RELEASE_TAG" ]]; then
+            echo "main no longer declares the published release $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          calculation=$(sh scripts/release-version.sh next-snapshot)
+          printf '%s\n' "$calculation" >> "$GITHUB_OUTPUT"
+      - name: Create next development version pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT_VERSION: ${{ steps.next.outputs.property-version }}
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          branch="automation/next-development-${NEXT_VERSION%-SNAPSHOT}"
+          if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null 2>&1; then
+            echo "next development branch already exists: $branch" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add release.properties
+          git commit -m "Start $NEXT_VERSION development"
+          git push origin "$branch"
+
+          {
+            echo "Advances the repository to $NEXT_VERSION after publishing $RELEASE_TAG."
+            echo
+            echo "This pull request was created by the protected release workflow. Its CI runs require maintainer approval when created with GITHUB_TOKEN."
+          } > pull-request-body.md
+          gh pr create --base main --head "$branch" --title "Start $NEXT_VERSION development" --body-file pull-request-body.md

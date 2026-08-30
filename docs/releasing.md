@@ -7,9 +7,11 @@ contract accepted in
 release authority accepted in
 [ADR 0020](architecture/decisions/0020-automated-release-authority.md).
 
-Maintainers do not invent or push release tags. The protected `Release` GitHub
-Actions workflow calculates the version, verifies the current `main` commit,
-creates the annotated tag, and publishes the release.
+Maintainers do not invent or push release tags. `release.properties` declares
+the reviewed development or release version. The `Prepare release` workflow
+opens the stable-version pull request, and the protected `Release` workflow
+verifies that merged version, creates the annotated tag, publishes the release,
+and proposes the next patch snapshot.
 
 ## Published artifacts
 
@@ -50,26 +52,31 @@ Before the first release, a repository administrator must:
    as the `DOCKERHUB_TOKEN` secret in the GitHub `release` environment.
 3. Protect the GitHub environment named `release`, require an appropriate
    reviewer, and restrict deployment to the `main` branch.
-4. Protect `v*` tags from manual deletion or updates while allowing the
+4. Enable **Allow GitHub Actions to create and approve pull requests** so the
+   narrowly scoped release jobs can open preparation and next-development pull
+   requests. The workflows never approve those pull requests.
+5. Protect `v*` tags from manual deletion or updates while allowing the
    protected release workflow to create new tags.
-5. Confirm GitHub OIDC is available for keyless signing and attestations.
+6. Confirm GitHub OIDC is available for keyless signing and attestations.
 
 The Docker Hub username is fixed in the workflow as `ayeshalmeida`; it is not
 a configurable secret. Do not store passwords, private signing keys, or
 long-lived GitHub tokens in the repository.
 
-## Version calculation
+## Version lifecycle
 
-The workflow accepts semantic intent rather than a version string:
+The root `release.properties` file is the reviewed version declaration:
 
-- with no existing stable release tag, every choice produces the fixed first
-  version `v0.5.0`;
-- `patch` increments `vX.Y.Z` to `vX.Y.(Z+1)`;
-- `minor` increments `vX.Y.Z` to `vX.(Y+1).0`;
-- `major` increments `vX.Y.Z` to `v(X+1).0.0`.
+- `version=X.Y.Z-SNAPSHOT` means development toward `X.Y.Z`;
+- the Prepare release workflow opens a pull request changing it to `X.Y.Z`;
+- the Release workflow publishes exactly `vX.Y.Z`;
+- successful publication opens a pull request for `X.Y.(Z+1)-SNAPSHOT`.
 
-Only strict stable `vX.Y.Z` tags are version bases. The calculator and its
-edge cases run as part of `make check`.
+The first declaration is `0.5.0-SNAPSHOT`. Only strict stable `vX.Y.Z` tags
+are comparison bases, and the declared candidate must be newer than the latest
+one. To begin a minor or major line, change the snapshot through a normal pull
+request before preparing the release. The parser, transitions, and invalid
+cases run as part of `make check`.
 
 ## Local dry run
 
@@ -89,27 +96,34 @@ signing. The container check builds both production targets and executes their
 
 ## Publishing checklist
 
-1. Confirm `main` CI passes, the worktree is clean, and
+1. Confirm `main` contains the intended `X.Y.Z-SNAPSHOT`, CI passes, and
    [the preview disclosure](../.github/release-notes/developer-preview.md)
    accurately states limitations, at-least-once duplicate windows, and upgrade
    impact.
 2. Run the local dry run with the pinned tool versions.
-3. Confirm both Docker Hub repositories are public and the scoped token works.
-4. Confirm the protected `release` environment allows only `main`, and the
-   `v*` tag rules are active.
-5. Open **Actions → Release → Run workflow**, select `main`, choose the intended
-   `patch`, `minor`, or `major` semantic change, and start the workflow.
-6. Review the calculated tag and exact source commit in the verification job
-   summary. Do not approve an unexpected candidate.
-7. Approve the protected `release` environment after verification passes.
-8. Confirm both image digests and all release assets, signatures, SBOMs, and
+3. Open **Actions → Prepare release → Run workflow** and select `main`. Do not
+   enter a version; the workflow reads `release.properties`.
+4. Approve the generated pull request CI, review the one-line change from
+   `X.Y.Z-SNAPSHOT` to `X.Y.Z`, and merge it after all checks pass.
+5. Confirm both Docker Hub repositories are public, the scoped token works, the
+   protected `release` environment allows `main`, and the `v*` tag rules are
+   active.
+6. Open **Actions → Release → Run workflow**, select `main`, and start it without
+   entering a version.
+7. Review the declared tag and exact source commit in the verification summary.
+   Do not approve an unexpected candidate.
+8. Approve the protected `release` environment after verification passes.
+9. Confirm both image digests and all release assets, signatures, SBOMs, and
    attestations exist. The workflow publishes the GitHub draft only after both
    container publications succeed.
+10. Approve CI on the generated next-development pull request, verify its patch
+    increment, and merge it.
 
 Do not manually create a release tag. Do not reuse or move a version tag after
-failure. Diagnose the draft and partial registry state, fix the source, merge
-the correction, and dispatch a new release using `patch` so a new version is
-consumed.
+failure. Diagnose the draft and partial registry state, fix the source, and use
+a reviewed property change plus the preparation workflow to consume the next
+unused version. If publication succeeds but the next-development pull request
+fails, create that same patch-snapshot change through a normal pull request.
 
 ## Consumer verification
 

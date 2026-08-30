@@ -15,37 +15,73 @@
 
 set -eu
 
-assert_version() {
-	bump=$1
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+
+write_properties() {
+	printf 'version=%s\n' "$1" > "$temporary/release.properties"
+}
+
+assert_inspect() {
+	property_version=$1
 	previous=$2
 	want=$3
-	got=$(sh scripts/next-release-version.sh "$bump" "$previous")
+	write_properties "$property_version"
+	got=$(sh scripts/release-version.sh inspect "$temporary/release.properties" "$previous")
 	if [ "$got" != "$want" ]; then
-		printf 'version calculation for %s from %s:\n%s\nwant:\n%s\n' "$bump" "$previous" "$got" "$want" >&2
+		printf 'inspection for %s after %s:\n%s\nwant:\n%s\n' "$property_version" "$previous" "$got" "$want" >&2
 		exit 1
 	fi
 }
 
-assert_version patch - 'tag=v0.5.0
+assert_rejected() {
+	property_version=$1
+	previous=$2
+	write_properties "$property_version"
+	if sh scripts/release-version.sh inspect "$temporary/release.properties" "$previous" >/dev/null 2>&1; then
+		printf 'invalid release version was accepted: %s after %s\n' "$property_version" "$previous" >&2
+		exit 1
+	fi
+}
+
+assert_inspect 0.5.0-SNAPSHOT - 'state=snapshot
+property-version=0.5.0-SNAPSHOT
 version=0.5.0
+tag=v0.5.0
 previous-tag='
-assert_version patch v0.5.0 'tag=v0.5.1
-version=0.5.1
-previous-tag=v0.5.0'
-assert_version minor v0.5.9 'tag=v0.6.0
+assert_inspect 0.6.0-SNAPSHOT v0.5.9 'state=snapshot
+property-version=0.6.0-SNAPSHOT
 version=0.6.0
+tag=v0.6.0
 previous-tag=v0.5.9'
-assert_version major v0.9.8 'tag=v1.0.0
+assert_inspect 1.0.0 v0.9.8 'state=release
+property-version=1.0.0
 version=1.0.0
+tag=v1.0.0
 previous-tag=v0.9.8'
 
-if sh scripts/next-release-version.sh automatic v0.5.0 >/dev/null 2>&1; then
-	echo "invalid release bump was accepted" >&2
-	exit 1
-fi
-if sh scripts/next-release-version.sh patch v0.5.0-rc.1 >/dev/null 2>&1; then
-	echo "prerelease tag was accepted as the stable release base" >&2
+write_properties 0.5.0-SNAPSHOT
+sh scripts/release-version.sh prepare "$temporary/release.properties" >/dev/null
+test "$(sed -n 's/^version=//p' "$temporary/release.properties")" = 0.5.0
+sh scripts/release-version.sh next-snapshot "$temporary/release.properties" >/dev/null
+test "$(sed -n 's/^version=//p' "$temporary/release.properties")" = 0.5.1-SNAPSHOT
+
+assert_rejected 0.5.0 v0.5.0
+assert_rejected 0.4.9-SNAPSHOT v0.5.0
+assert_rejected 0.5 v0.4.0
+assert_rejected 00.5.0-SNAPSHOT -
+assert_rejected 0.5.0-rc.1 -
+
+printf 'version=0.5.0\nversion=0.5.1\n' > "$temporary/release.properties"
+if sh scripts/release-version.sh inspect "$temporary/release.properties" - >/dev/null 2>&1; then
+	echo "duplicate release property was accepted" >&2
 	exit 1
 fi
 
-echo "release version calculation is valid"
+printf 'version=0.5.0\nchannel=preview\n' > "$temporary/release.properties"
+if sh scripts/release-version.sh inspect "$temporary/release.properties" - >/dev/null 2>&1; then
+	echo "unknown release property was accepted" >&2
+	exit 1
+fi
+
+echo "release version lifecycle is valid"

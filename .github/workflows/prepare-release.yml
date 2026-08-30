@@ -1,0 +1,80 @@
+name: Prepare release
+run-name: Prepare release declared in release.properties
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Open release preparation pull request
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Validate snapshot candidate
+        id: release
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "prepare workflow must be dispatched from main" >&2
+            exit 1
+          fi
+          git fetch --force --tags origin
+          git fetch --no-tags origin main
+          if [[ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]]; then
+            echo "dispatched commit is no longer the current main commit" >&2
+            exit 1
+          fi
+
+          calculation=$(sh scripts/release-version.sh inspect)
+          printf '%s\n' "$calculation" >> "$GITHUB_OUTPUT"
+          state=$(printf '%s\n' "$calculation" | sed -n 's/^state=//p')
+          tag=$(printf '%s\n' "$calculation" | sed -n 's/^tag=//p')
+          if [[ "$state" != "snapshot" ]]; then
+            echo "release.properties must contain a snapshot version" >&2
+            exit 1
+          fi
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            echo "release tag already exists: $tag" >&2
+            exit 1
+          fi
+      - name: Create stable-version pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          branch="automation/prepare-$TAG"
+          if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null 2>&1; then
+            echo "release preparation branch already exists: $branch" >&2
+            exit 1
+          fi
+
+          sh scripts/release-version.sh prepare
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add release.properties
+          git commit -m "Prepare $TAG release"
+          git push origin "$branch"
+
+          {
+            echo "Changes release.properties from $VERSION-SNAPSHOT to $VERSION."
+            echo
+            echo "After this pull request passes CI and is merged, dispatch the **Release** workflow from main."
+            echo
+            echo "This pull request was created with GITHUB_TOKEN; approve its workflow runs in the merge box."
+          } > pull-request-body.md
+          gh pr create --base main --head "$branch" --title "Prepare $TAG release" --body-file pull-request-body.md
