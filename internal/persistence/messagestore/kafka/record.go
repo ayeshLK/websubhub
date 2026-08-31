@@ -38,14 +38,14 @@ func encodeRecord(destination messagestore.Destination, message messagestore.Mes
 	if message.ID == "" {
 		return nil, errors.New("message ID is required")
 	}
-	if message.ContentType == "" {
-		return nil, errors.New("content type is required")
-	}
 	if message.StorageError != "" {
 		return nil, errors.New("a storage-invalid message cannot be published as normal content")
 	}
 	record := &kgo.Record{Topic: string(destination), Key: []byte(message.ID), Value: append([]byte(nil), message.Body...)}
-	record.Headers = append(record.Headers, kgo.RecordHeader{Key: headerMessageID, Value: []byte(message.ID)}, kgo.RecordHeader{Key: headerContentType, Value: []byte(message.ContentType)})
+	record.Headers = append(record.Headers, kgo.RecordHeader{Key: headerMessageID, Value: []byte(message.ID)})
+	if message.ContentType != "" {
+		record.Headers = append(record.Headers, kgo.RecordHeader{Key: headerContentType, Value: []byte(message.ContentType)})
+	}
 	keys := make([]string, 0, len(message.Metadata))
 	for key := range message.Metadata {
 		keys = append(keys, key)
@@ -72,15 +72,8 @@ func decodeRecord(record *kgo.Record) (messagestore.Message, error) {
 			message.Metadata[strings.TrimPrefix(header.Key, headerMetadataPrefix)] = string(header.Value)
 		}
 	}
-	missing := make([]string, 0, 2)
 	if message.ID == "" {
-		missing = append(missing, "message_id")
-	}
-	if message.ContentType == "" {
-		missing = append(missing, "content_type")
-	}
-	if len(missing) != 0 {
-		message.StorageError = "missing_" + strings.Join(missing, "_and_")
+		message.StorageError = "missing_message_id"
 	}
 	message.Metadata = maps.Clone(message.Metadata)
 	return message, nil

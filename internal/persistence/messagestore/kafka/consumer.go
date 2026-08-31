@@ -456,9 +456,8 @@ func (c *Consumer) DeadLetter(ctx context.Context, receipt messagestore.Receipt,
 	record.Message.Metadata["topic-id"] = record.TopicID
 	record.Message.Metadata["subscription-id"] = record.SubscriptionID
 	record.Message.Metadata["attempt"] = strconv.FormatUint(uint64(record.Attempt), 10)
-	if record.Message.StorageError != "" {
-		record.Message.Metadata["storage-error"] = record.Message.StorageError
-		record.Message.StorageError = ""
+	if record.StorageError != "" {
+		record.Message.Metadata["storage-error"] = record.StorageError
 	}
 	if err := c.producer.Send(ctx, record.Destination, record.Message); err != nil {
 		return err

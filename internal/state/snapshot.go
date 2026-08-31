@@ -86,8 +86,12 @@ func validateSnapshot(snapshot Snapshot) error {
 		return errors.New("snapshot maps must be initialized")
 	}
 	for id, topic := range snapshot.Topics {
-		if id == "" || topic.ID != id || topic.CanonicalURL == "" || topic.ContentDestination == "" {
+		if id == "" || topic.ID != id || topic.CanonicalURL == "" || topic.ContentDestination == "" || topic.ContentType == "" {
 			return fmt.Errorf("invalid topic %q", id)
+		}
+		normalized, err := NormalizeContentType(topic.ContentType)
+		if err != nil || normalized != topic.ContentType {
+			return fmt.Errorf("topic %q has invalid content type", id)
 		}
 		if topic.Status != TopicActive && topic.Status != TopicInactive {
 			return fmt.Errorf("topic %q has invalid status", id)

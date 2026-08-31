@@ -61,4 +61,8 @@ func TestEventCodecRejectsUnknownAndTrailingData(t *testing.T) {
 	if _, err := DecodeEvent(append(encoded, []byte(` {}`)...)); err == nil || !strings.Contains(err.Error(), "trailing") {
 		t.Fatalf("trailing value error = %v", err)
 	}
+	legacyPreview := strings.Replace(string(encoded), `,"content_type":"application/json"`, "", 1)
+	if _, err := DecodeEvent([]byte(legacyPreview)); err == nil || !strings.Contains(err.Error(), "topic registration content type is invalid") {
+		t.Fatalf("legacy preview event error = %v", err)
+	}
 }

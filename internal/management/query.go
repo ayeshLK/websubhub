@@ -53,6 +53,7 @@ type SubscriptionQuery struct {
 type TopicView struct {
 	ID           string            `json:"id"`
 	URL          string            `json:"url"`
+	ContentType  string            `json:"content_type"`
 	Status       state.TopicStatus `json:"status"`
 	RegisteredAt time.Time         `json:"registered_at"`
 	Revision     uint64            `json:"revision"`
@@ -214,7 +215,7 @@ func validatedLimit(limit int) (int, error) {
 }
 
 func topicView(topic state.Topic) TopicView {
-	return TopicView{ID: topic.ID, URL: topic.CanonicalURL, Status: topic.Status, RegisteredAt: topic.RegisteredAt, Revision: topic.Revision}
+	return TopicView{ID: topic.ID, URL: topic.CanonicalURL, ContentType: topic.ContentType, Status: topic.Status, RegisteredAt: topic.RegisteredAt, Revision: topic.Revision}
 }
 
 func subscriptionView(subscription state.Subscription) SubscriptionView {

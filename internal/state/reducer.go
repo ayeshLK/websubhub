@@ -51,8 +51,12 @@ func (Reducer) Apply(current Snapshot, event Event) (Snapshot, bool, error) {
 func apply(next *Snapshot, event Event) (bool, error) {
 	switch e := event.(type) {
 	case TopicRegistered:
-		if e.Topic.ID == "" || e.Topic.CanonicalURL == "" || e.Topic.ContentDestination == "" || e.Topic.RegisteredAt.IsZero() {
+		if e.Topic.ID == "" || e.Topic.CanonicalURL == "" || e.Topic.ContentDestination == "" || e.Topic.ContentType == "" || e.Topic.RegisteredAt.IsZero() {
 			return false, fmt.Errorf("%w: incomplete topic registration", ErrInvalidTransition)
+		}
+		normalized, err := NormalizeContentType(e.Topic.ContentType)
+		if err != nil || normalized != e.Topic.ContentType {
+			return false, fmt.Errorf("%w: topic content type is not canonical", ErrInvalidTransition)
 		}
 		desired := e.Topic
 		desired.Status = TopicActive
@@ -63,6 +67,9 @@ func apply(next *Snapshot, event Event) (bool, error) {
 			}
 			if existing.CanonicalURL != desired.CanonicalURL {
 				return false, fmt.Errorf("%w: topic ID collision", ErrInvalidTransition)
+			}
+			if existing.ContentType != desired.ContentType {
+				return false, fmt.Errorf("%w: topic content type is immutable", ErrInvalidTransition)
 			}
 		}
 		next.Topics[desired.ID] = desired

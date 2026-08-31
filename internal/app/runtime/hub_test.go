@@ -86,8 +86,8 @@ func TestListenerAuthenticationsAreIndependent(t *testing.T) {
 func TestEnsureHubDestinationsProvisionsOnlyActiveTopicsAndDLQ(t *testing.T) {
 	administrator := &recordingAdministrator{}
 	snapshot := state.EmptySnapshot()
-	snapshot.Topics["active"] = state.Topic{ID: "active", ContentDestination: "content-active", Status: state.TopicActive}
-	snapshot.Topics["removed"] = state.Topic{ID: "removed", ContentDestination: "content-removed", Status: state.TopicInactive}
+	snapshot.Topics["active"] = state.Topic{ID: "active", ContentDestination: "content-active", ContentType: "application/json", Status: state.TopicActive}
+	snapshot.Topics["removed"] = state.Topic{ID: "removed", ContentDestination: "content-removed", ContentType: "application/json", Status: state.TopicInactive}
 	if err := ensureHubDestinations(t.Context(), administrator, snapshot, "delivery-dlq"); err != nil {
 		t.Fatal(err)
 	}

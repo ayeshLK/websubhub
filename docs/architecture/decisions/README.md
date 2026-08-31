@@ -25,6 +25,7 @@ tests, configuration, and release claims.
 - [ADR 0020: Automated release authority](0020-automated-release-authority.md)
 - [ADR 0021: Explicit API authentication modes](0021-explicit-api-authentication-modes.md)
 - [ADR 0022: Structured runtime logging](0022-structured-runtime-logging.md)
+- [ADR 0023: Topic-governed resource content types](0023-topic-content-type-contract.md)
 - [Open implementation gates](open-gates.md)
 
 Persisted-schema changes require an explicit replacement ADR, offline migration

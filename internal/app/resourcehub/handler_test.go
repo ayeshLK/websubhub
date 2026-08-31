@@ -83,6 +83,12 @@ func (f subscriptionValidatorFunc) ValidateSubscription(ctx context.Context, des
 	return f(ctx, destination, options)
 }
 
+type contentSinkFunc func(context.Context, ContentUpdate) error
+
+func (f contentSinkFunc) Persist(ctx context.Context, update ContentUpdate) error {
+	return f(ctx, update)
+}
+
 type allowAuthorization struct{}
 
 func (allowAuthorization) Middleware(next http.Handler) http.Handler         { return next }
@@ -127,6 +133,7 @@ func TestPublisherRegistrationAppendsWithoutMutatingProjection(t *testing.T) {
 	if registered.Topic.ID != topicID ||
 		registered.Topic.CanonicalURL != topic ||
 		registered.Topic.ContentDestination != string(destination) ||
+		registered.Topic.ContentType != "application/json; charset=utf-8" ||
 		registered.Meta.Actor.Type != "publisher" || registered.Meta.Actor.ID != "subject-1" {
 		t.Fatalf("registration = %#v", registered)
 	}
@@ -139,7 +146,10 @@ func TestPublisherRegistrationAppendsWithoutMutatingProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	view.set(applied)
-	response = serveForm(handler, url.Values{"hub.mode": {"register"}, "hub.topic": {topic}})
+	response = serveForm(handler, url.Values{
+		"hub.mode": {"register"}, "hub.topic": {topic},
+		"hub.content_type": {"application/json; charset=utf-8"},
+	})
 	if response.Code != http.StatusConflict {
 		t.Fatalf("duplicate registration status = %d", response.Code)
 	}
@@ -157,6 +167,42 @@ func TestPublisherRegistrationAppendsWithoutMutatingProjection(t *testing.T) {
 	if view.Snapshot().Topics[topicID].Status != state.TopicActive {
 		t.Fatal("deregistration callback mutated projection before state consumption")
 	}
+}
+
+func TestTopicContentTypeDefaultsAndCannotChangeAfterDeregistration(t *testing.T) {
+	cfg := testConfig()
+	cfg.Protocol.PublisherExtensionEnabled = true
+	events := &eventAppender{events: make(chan state.Event, 4)}
+	view := &projection{snapshot: state.EmptySnapshot()}
+	handler := newTestHandler(t, cfg, events, view, &sealer{})
+	topic := "https://publisher.example.test/default-content"
+
+	response := serveForm(handler, url.Values{"hub.mode": {"register"}, "hub.topic": {topic}})
+	if response.Code != http.StatusOK {
+		t.Fatalf("registration status = %d body=%q", response.Code, response.Body.String())
+	}
+	registered := receiveEvent(t, events.events).(state.TopicRegistered)
+	if registered.Topic.ContentType != state.DefaultTopicContentType {
+		t.Fatalf("default content type = %q", registered.Topic.ContentType)
+	}
+	snapshot, _, err := (state.Reducer{}).Apply(state.EmptySnapshot(), registered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deregistered := state.TopicDeregistered{Meta: state.EventMetadata{SchemaVersion: state.SchemaVersion, EventID: "deregister", OccurredAt: adapterTime, Actor: state.Actor{Type: "publisher"}}, TopicID: registered.Topic.ID}
+	snapshot, _, err = (state.Reducer{}).Apply(snapshot, deregistered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view.set(snapshot)
+
+	response = serveForm(handler, url.Values{
+		"hub.mode": {"register"}, "hub.topic": {topic}, "hub.content_type": {"text/plain"},
+	})
+	if response.Code >= 200 && response.Code < 300 {
+		t.Fatalf("content type change status = %d", response.Code)
+	}
+	assertNoEvent(t, events.events)
 }
 
 func TestVerifiedSubscriptionSealsAndAppendsOwnedState(t *testing.T) {
@@ -298,6 +344,31 @@ func TestPublisherExtensionAndContentIngestionAreExplicit(t *testing.T) {
 	}
 }
 
+func TestPublicationContentTypeMismatchIsDenied(t *testing.T) {
+	cfg := testConfig()
+	cfg.Protocol.PublisherExtensionEnabled = true
+	events := &eventAppender{events: make(chan state.Event, 1)}
+	view := &projection{snapshot: state.EmptySnapshot()}
+	called := false
+	handler := newTestHandlerWithContent(t, cfg, events, view, &sealer{}, contentSinkFunc(func(_ context.Context, update ContentUpdate) error {
+		called = true
+		if update.ContentType != "text/plain" {
+			t.Fatalf("publication content type = %q", update.ContentType)
+		}
+		return ErrContentTypeMismatch
+	}))
+	request := httptest.NewRequest(http.MethodPost,
+		"/websub?hub.mode=publish&hub.topic=https%3A%2F%2Fpublisher.example.test%2Forders",
+		strings.NewReader("not-json"))
+	request.Header.Set("Content-Type", "text/plain")
+	request.Header.Set("X-Go-Publisher", "publish")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if !called || response.Code >= 200 && response.Code < 300 {
+		t.Fatalf("called=%v status=%d body=%q", called, response.Code, response.Body.String())
+	}
+}
+
 func TestNewRequiresDurableDependencies(t *testing.T) {
 	cfg := testConfig()
 	if _, err := New(cfg, Dependencies{}); err == nil {
@@ -306,15 +377,23 @@ func TestNewRequiresDurableDependencies(t *testing.T) {
 }
 
 func newTestHandler(t *testing.T, cfg config.HubConfig, events EventAppender, view Projection, secrets SecretSealer) *Handler {
-	return newTestHandlerWithValidator(t, cfg, events, view, secrets, allowSubscriptions{})
+	return newTestHandlerWithDependencies(t, cfg, events, view, secrets, allowSubscriptions{}, nil)
 }
 
 func newTestHandlerWithValidator(t *testing.T, cfg config.HubConfig, events EventAppender, view Projection, secrets SecretSealer, subscriptions SubscriptionValidator) *Handler {
+	return newTestHandlerWithDependencies(t, cfg, events, view, secrets, subscriptions, nil)
+}
+
+func newTestHandlerWithContent(t *testing.T, cfg config.HubConfig, events EventAppender, view Projection, secrets SecretSealer, content ContentSink) *Handler {
+	return newTestHandlerWithDependencies(t, cfg, events, view, secrets, allowSubscriptions{}, content)
+}
+
+func newTestHandlerWithDependencies(t *testing.T, cfg config.HubConfig, events EventAppender, view Projection, secrets SecretSealer, subscriptions SubscriptionValidator, content ContentSink) *Handler {
 	t.Helper()
 	sequence := 0
 	handler, err := New(cfg, Dependencies{
 		Events: events, Projection: view, Secrets: secrets, Callbacks: allowCallbacks{}, Authorization: allowAuthorization{},
-		Subscriptions: subscriptions, VerificationClient: http.DefaultClient,
+		Subscriptions: subscriptions, Content: content, VerificationClient: http.DefaultClient,
 		Now: func() time.Time { return adapterTime },
 		NewEventID: func() (string, error) {
 			sequence++
@@ -345,7 +424,7 @@ func activeTopicSnapshot(t *testing.T, topic string) state.Snapshot {
 	snapshot := state.EmptySnapshot()
 	snapshot.Topics[topicID] = state.Topic{
 		ID: topicID, CanonicalURL: topic, ContentDestination: "content",
-		Status: state.TopicActive, RegisteredAt: adapterTime,
+		ContentType: "application/json", Status: state.TopicActive, RegisteredAt: adapterTime,
 	}
 	return snapshot
 }

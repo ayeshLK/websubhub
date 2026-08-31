@@ -103,6 +103,10 @@ curl -i \
 
 The expected response is `200 OK`.
 
+`hub.content_type` is optional and defaults to `application/json`. It becomes
+the immutable representation contract for this topic. A later publication must
+declare the same complete media type, including parameters.
+
 WebSubHub acknowledges the durable state append before every hub projection is
 guaranteed to have observed it. Inspect the canonical topic query view:
 
@@ -178,8 +182,9 @@ curl -i -X POST \
   "http://localhost:8080/websub?hub.mode=publish&hub.topic=https%3A%2F%2Fpublisher.example.test%2Forders"
 ~~~
 
-The expected response is `202 Accepted`, which means the exact bytes and
-complete content type crossed the configured durable persistence boundary.
+The expected response is `202 Accepted`, which means the exact bytes crossed
+the configured durable persistence boundary after the publication content type
+matched the topic contract.
 
 ## 7. Inspect the delivered request
 
@@ -191,7 +196,7 @@ The fixture records:
 
 - callback path and attempt count;
 - exact body encoded as base64;
-- complete content type;
+- the topic-defined complete content type;
 - stable `X-Hub-MessageId`;
 - WebSub HMAC signature.
 

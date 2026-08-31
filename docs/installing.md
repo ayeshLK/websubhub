@@ -220,6 +220,21 @@ therefore selects the previously verified archive or image digest. Whether a
 state rollback is safe depends on the release-specific schema and migration
 notes; do not infer compatibility only from the binary version.
 
+The topic-governed content-type contract in `0.7.0` redefines preview state
+schema version 1 because the pre-1.0 product has no production adoption. It is
+still not an in-place upgrade from an earlier preview. Stop every hub and
+consolidator, retain the old state destinations for rollback, configure new
+empty event and snapshot destinations, start the `0.7.0` deployment, and
+re-register topics and subscriptions. Supply `hub.content_type` for every
+non-JSON topic; omission selects `application/json`. Old content destinations
+are not rewritten or replayed. Runtime startup rejects legacy topic records
+that omit the required content type instead of guessing a contract.
+
+Rollback requires stopping all `0.7.0` processes and restoring both the
+earlier binaries and retained state destinations. Never point earlier-preview
+and `0.7.0` processes at the same state destinations even though both use
+schema version 1.
+
 ## Current preview limitations
 
 The current release is a developer preview, not a production-readiness claim.

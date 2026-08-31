@@ -125,7 +125,8 @@ The current implementation provides:
   startup without a snapshot/event gap;
 - WebSub topic registration/deregistration and verified subscribe/unsubscribe
   lifecycle persistence;
-- exact publisher payload and complete `Content-Type` preservation;
+- topic-governed content types (default `application/json`), publication
+  matching, and exact payload-byte preservation;
 - sequential per-subscription delivery with stable message IDs and WebSub HMAC
   signatures;
 - optional Kafka consumer-group load balancing and explicit partition

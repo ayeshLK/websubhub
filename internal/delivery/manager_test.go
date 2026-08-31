@@ -75,7 +75,7 @@ func TestManagerUsesTemporaryStopForStaleAndWrongOwner(t *testing.T) {
 }
 
 func managerSnapshot(status state.SubscriptionStatus, owner string) state.Snapshot {
-	return state.Snapshot{Topics: map[string]state.Topic{"topic-1": {ID: "topic-1", Status: state.TopicActive, ContentDestination: "content"}}, Subscriptions: map[string]state.Subscription{"subscription-1": {ID: "subscription-1", TopicID: "topic-1", Status: status, ServerID: owner, ConsumerID: "consumer-stable"}}}
+	return state.Snapshot{Topics: map[string]state.Topic{"topic-1": {ID: "topic-1", Status: state.TopicActive, ContentDestination: "content", ContentType: "application/json"}}, Subscriptions: map[string]state.Subscription{"subscription-1": {ID: "subscription-1", TopicID: "topic-1", Status: status, ServerID: owner, ConsumerID: "consumer-stable"}}}
 }
 
 type runnerFactory struct {

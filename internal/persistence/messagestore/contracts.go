@@ -34,7 +34,9 @@ var (
 type Destination string
 type ConsumerID string
 
-// Message preserves application bytes and media type without reserialization.
+// Message preserves application bytes without reserialization. ContentType and
+// Metadata are optional typed-envelope fields; ordinary resource content omits
+// both because its destination and topic state define the channel contract.
 type Message struct {
 	ID           string
 	Body         []byte
@@ -98,6 +100,7 @@ type DeadLetter struct {
 	SubscriptionID string
 	FailureClass   string
 	Attempt        uint32
+	StorageError   string
 }
 
 type Consumer interface {

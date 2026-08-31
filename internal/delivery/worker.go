@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"math"
 	mathrand "math/rand/v2"
-	"mime"
 	"net/http"
 	"sync"
 	"time"
@@ -50,7 +49,7 @@ type Attempt interface {
 	Deliver(context.Context, messagestore.Message) (int, error)
 }
 type AttemptFactory interface {
-	New(state.Subscription, []byte) (Attempt, error)
+	New(state.Topic, state.Subscription, []byte) (Attempt, error)
 }
 type WaitFunc func(context.Context, time.Duration) error
 
@@ -80,8 +79,11 @@ func NewWorker(cfg config.Delivery, topic state.Topic, subscription state.Subscr
 	if deps.Administrator == nil || deps.Events == nil || deps.Secrets == nil || deps.Attempts == nil {
 		return nil, errors.New("administrator, state events, secret opener, and attempt factory are required")
 	}
-	if topic.ID == "" || topic.ContentDestination == "" || subscription.ID == "" || subscription.ConsumerID == "" {
+	if topic.ID == "" || topic.ContentDestination == "" || topic.ContentType == "" || subscription.ID == "" || subscription.ConsumerID == "" {
 		return nil, errors.New("complete topic and subscription identities are required")
+	}
+	if normalized, err := state.NormalizeContentType(topic.ContentType); err != nil || normalized != topic.ContentType {
+		return nil, errors.New("delivery topic content type is invalid")
 	}
 	if subscription.TopicID != topic.ID {
 		return nil, errors.New("subscription topic does not match delivery topic")
@@ -144,7 +146,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	if err != nil {
 		return w.markStale(ctx, "secret_unavailable")
 	}
-	attempt, err := w.deps.Attempts.New(w.subscription, secret)
+	attempt, err := w.deps.Attempts.New(w.topic, w.subscription, secret)
 	clear(secret)
 	if err != nil {
 		return w.markStale(ctx, "delivery_client_invalid")
@@ -343,8 +345,8 @@ func (w *Worker) metadata() (state.EventMetadata, error) {
 }
 
 func (w *Worker) deadLetter(message messagestore.Message, failure string, attempt uint32) (messagestore.DeadLetter, error) {
+	storageError := message.StorageError
 	message.StorageError = ""
-	message.Metadata = map[string]string{"topic-id": w.topic.ID}
 	if message.ID == "" {
 		id, err := w.deps.NewEventID()
 		if err != nil {
@@ -352,12 +354,7 @@ func (w *Worker) deadLetter(message messagestore.Message, failure string, attemp
 		}
 		message.ID = "dlq-" + id
 	}
-	if message.ContentType == "" {
-		message.ContentType = "application/octet-stream"
-	} else if _, _, err := mime.ParseMediaType(message.ContentType); err != nil {
-		message.ContentType = "application/octet-stream"
-	}
-	return messagestore.DeadLetter{Destination: messagestore.Destination(w.cfg.DLQDestination), Message: message, TopicID: w.topic.ID, SubscriptionID: w.subscription.ID, FailureClass: failure, Attempt: attempt}, nil
+	return messagestore.DeadLetter{Destination: messagestore.Destination(w.cfg.DLQDestination), Message: message, TopicID: w.topic.ID, SubscriptionID: w.subscription.ID, FailureClass: failure, Attempt: attempt, StorageError: storageError}, nil
 }
 
 func malformed(message messagestore.Message) string {
@@ -366,12 +363,6 @@ func malformed(message messagestore.Message) string {
 	}
 	if message.ID == "" {
 		return "missing_message_id"
-	}
-	if message.ContentType == "" {
-		return "missing_content_type"
-	}
-	if _, _, err := mime.ParseMediaType(message.ContentType); err != nil {
-		return "invalid_content_type"
 	}
 	return ""
 }
@@ -454,7 +445,7 @@ type LibraryAttemptFactory struct {
 	MaxResponseBody int64
 }
 
-func (f LibraryAttemptFactory) New(subscription state.Subscription, secret []byte) (Attempt, error) {
+func (f LibraryAttemptFactory) New(topic state.Topic, subscription state.Subscription, secret []byte) (Attempt, error) {
 	if f.HTTPClient == nil {
 		return nil, errors.New("policy-controlled callback HTTP client is required")
 	}
@@ -462,12 +453,15 @@ func (f LibraryAttemptFactory) New(subscription state.Subscription, secret []byt
 	if err != nil {
 		return nil, err
 	}
-	return libraryAttempt{client: client}, nil
+	return libraryAttempt{client: client, contentType: topic.ContentType}, nil
 }
 
-type libraryAttempt struct{ client *websubhub.DeliveryClient }
+type libraryAttempt struct {
+	client      *websubhub.DeliveryClient
+	contentType string
+}
 
 func (a libraryAttempt) Deliver(ctx context.Context, message messagestore.Message) (int, error) {
-	response, err := a.client.Deliver(ctx, websubhub.ContentDistribution{ContentType: message.ContentType, Body: message.Body, Header: http.Header{HeaderMessageID: []string{message.ID}}})
+	response, err := a.client.Deliver(ctx, websubhub.ContentDistribution{ContentType: a.contentType, Body: message.Body, Header: http.Header{HeaderMessageID: []string{message.ID}}})
 	return response.StatusCode, err
 }

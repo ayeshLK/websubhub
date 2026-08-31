@@ -151,7 +151,7 @@ func newTestStore(t *testing.T, backing *messagestoretest.Store) *MessageStore {
 func topicEvent(eventID, topicID string) state.TopicRegistered {
 	return state.TopicRegistered{
 		Meta:  state.EventMetadata{SchemaVersion: state.SchemaVersion, EventID: eventID, OccurredAt: time.Unix(1, 0).UTC(), Actor: state.Actor{Type: "test"}},
-		Topic: state.Topic{ID: topicID, CanonicalURL: "https://example.test/" + topicID, ContentDestination: "content-" + topicID, RegisteredAt: time.Unix(1, 0).UTC()},
+		Topic: state.Topic{ID: topicID, CanonicalURL: "https://example.test/" + topicID, ContentDestination: "content-" + topicID, ContentType: "application/json", RegisteredAt: time.Unix(1, 0).UTC()},
 	}
 }
 

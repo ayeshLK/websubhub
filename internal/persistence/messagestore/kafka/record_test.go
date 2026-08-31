@@ -53,8 +53,23 @@ func TestRecordValidation(t *testing.T) {
 		t.Fatal("unsafe metadata key accepted")
 	}
 	stored, err := decodeRecord(mustRecord(t, messagestore.Message{ID: "id", ContentType: "text/plain"}, true))
-	if err != nil || stored.StorageError != "missing_message_id_and_content_type" {
+	if err != nil || stored.StorageError != "missing_message_id" {
 		t.Fatalf("malformed stored record = %#v, %v", stored, err)
+	}
+}
+
+func TestMinimalContentRecordRoundTrip(t *testing.T) {
+	message := messagestore.Message{ID: "message-1", Body: []byte{0, 255}}
+	record, err := encodeRecord("content", message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeRecord(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, messagestore.Message{ID: "message-1", Body: []byte{0, 255}, Metadata: map[string]string{}}) {
+		t.Fatalf("decoded = %#v", decoded)
 	}
 }
 
