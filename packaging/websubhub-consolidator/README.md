@@ -28,6 +28,10 @@ Start Kafka before starting this process:
 On Windows, use `bin\\websubhub-consolidator.exe`. Run the binary with
 `--version` to inspect embedded version metadata.
 
+The process writes newline-delimited JSON logs to standard error. Set
+`logging.level` to `debug`, `info`, `warn`, or `error`; the default is `info`
+and changes require a restart.
+
 The consolidator and hub are independently deployable but released under one
 lockstep product version. Use mTLS for hub clients unless the internal listener
 is isolated on a trusted network.

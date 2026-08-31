@@ -71,6 +71,7 @@ Start from the
 [`websubhub-consolidator` example](https://github.com/ayeshLK/websubhub/blob/main/configs/websubhub-consolidator.example.toml)
 and configure:
 
+- the `debug`, `info`, `warn`, or `error` structured log level;
 - the internal snapshot listener and authentication mode;
 - Kafka brokers, state destinations, and snapshot behavior;
 - optional Kafka TLS, mTLS, and SASL settings;
@@ -81,6 +82,10 @@ Environment variables override TOML leaves using the `WEBSUBHUB__` prefix and
 double underscores between nested keys. Credentials, keys, and certificates
 should be mounted as files. Invalid or incomplete security configuration fails
 closed.
+
+The container writes newline-delimited JSON logs to standard error. Override
+the default `info` level with `WEBSUBHUB__LOGGING__LEVEL`; changes require a
+container restart.
 
 ## Availability boundary
 

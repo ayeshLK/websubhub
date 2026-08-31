@@ -287,12 +287,12 @@ Actions are pinned to immutable commit SHAs.
 WebSubHub uses two strict configuration roots:
 
 - [`configs/websubhub.example.toml`](configs/websubhub.example.toml) configures
-  the public and operations listeners, stable server ID, explicit authentication
+  structured logging, the public and operations listeners, stable server ID, explicit authentication
   modes, JWT policy, callback
   safety, subscription-secret provider, state projection, consolidator client,
   delivery, and Kafka MessageStore.
 - [`configs/websubhub-consolidator.example.toml`](configs/websubhub-consolidator.example.toml)
-  configures the internal snapshot service, state behavior, authentication,
+  configures structured logging, the internal snapshot service, state behavior, authentication,
   and Kafka MessageStore.
 
 Unknown keys, incomplete security settings, invalid retry combinations, and
@@ -302,8 +302,13 @@ override leaf fields using double underscores:
 ```sh
 WEBSUBHUB__SERVER__ID=hub-b
 WEBSUBHUB__SERVER__PUBLIC_URL=https://hub-b.example.com/websub
+WEBSUBHUB__LOGGING__LEVEL=debug
 WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS='["kafka-1:9092","kafka-2:9092"]'
 ```
+
+Both components write newline-delimited JSON logs to standard error. The
+`logging.level` setting accepts `debug`, `info`, `warn`, or `error`, defaults to
+`info`, and requires a restart when changed.
 
 Kafka TLS and SASL credentials are loaded through file references rather than
 inline example secrets. Hub-to-consolidator authentication is either `mtls`

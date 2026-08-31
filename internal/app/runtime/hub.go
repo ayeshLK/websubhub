@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -41,13 +42,17 @@ import (
 	"github.com/ayeshLK/websubhub/internal/transport/mtls"
 )
 
-func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
+func RunHub(ctx context.Context, cfg config.HubConfig, logger *slog.Logger) (resultErr error) {
 	if ctx == nil {
 		return errors.New("context is required")
+	}
+	if logger == nil {
+		return errors.New("logger is required")
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	logger.Info("runtime initialization started", "operation", "runtime_initializing", "provider", cfg.MessageStore.Provider)
 	kafkaConfig, err := provider.Kafka(cfg.MessageStore)
 	if err != nil {
 		return err
@@ -93,6 +98,7 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 	if err := projection.Start(ctx); err != nil {
 		return err
 	}
+	logger.Info("state projection caught up", "operation", "state_projection_ready", "revision", projection.Snapshot().Revision)
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Server.ShutdownTimeout.Value())
 		defer cancel()
@@ -159,6 +165,7 @@ func RunHub(ctx context.Context, cfg config.HubConfig) (resultErr error) {
 	}
 	publicServer := httpruntime.NewServer(cfg.Server.Listen, publicHandler, cfg.Server.ReadHeaderTimeout.Value(), cfg.Server.ReadTimeout.Value(), cfg.Server.WriteTimeout.Value(), cfg.Server.IdleTimeout.Value())
 	operationsServer := httpruntime.NewServer(cfg.Operations.Listen, operations, cfg.Operations.ReadHeaderTimeout.Value(), cfg.Operations.ReadTimeout.Value(), cfg.Operations.WriteTimeout.Value(), cfg.Operations.IdleTimeout.Value())
+	logger.Info("runtime initialized", "operation", "runtime_initialized", "provider", cfg.MessageStore.Provider)
 
 	go func() {
 		if err := consumeHub(runCtx, projection, manager, administrator, cfg); err != nil && runCtx.Err() == nil {

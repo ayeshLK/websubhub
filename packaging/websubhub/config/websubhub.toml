@@ -1,3 +1,7 @@
+[logging]
+# JSON logs are written to stderr. Changes require a process restart.
+level = "info" # debug, info, warn, or error
+
 [server]
 id = "hub-a"
 listen = ":8080"

@@ -1,3 +1,6 @@
+[logging]
+level = "info"
+
 [server]
 id = "hub-a"
 listen = ":8080"

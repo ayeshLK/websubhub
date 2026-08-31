@@ -16,6 +16,7 @@
 package observe
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -26,7 +27,23 @@ const maximumLogValueBytes = 256
 var allowedLogAttributes = map[string]struct{}{
 	"component": {}, "operation": {}, "status_class": {}, "failure_class": {},
 	"provider": {}, "event_id": {}, "message_id": {}, "subscription_id": {},
-	"topic_id": {}, "revision": {}, "attempt": {}, "duration_ms": {}, "error_class": {},
+	"revision": {}, "attempt": {}, "duration_ms": {}, "error_class": {},
+	"surface": {}, "auth_mode": {}, "version": {}, "commit": {}, "build_date": {},
+}
+
+func Level(value string) (slog.Level, error) {
+	switch value {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("unsupported log level %q", value)
+	}
 }
 
 func NewLogger(destination io.Writer, level slog.Leveler) *slog.Logger {

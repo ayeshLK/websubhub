@@ -101,6 +101,10 @@ WEBSUBHUB__SERVER__ID=hub-a \
   ./bin/websubhub --config /etc/websubhub/websubhub.toml
 ```
 
+Both processes emit newline-delimited JSON logs to standard error. Configure
+`logging.level` as `debug`, `info`, `warn`, or `error` (default `info`), or use
+`WEBSUBHUB__LOGGING__LEVEL=debug`. Log-level changes require a restart.
+
 Start services in dependency order:
 
 1. Kafka;

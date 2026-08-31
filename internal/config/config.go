@@ -39,6 +39,13 @@ const (
 )
 
 const (
+	LogLevelDebug = "debug"
+	LogLevelInfo  = "info"
+	LogLevelWarn  = "warn"
+	LogLevelError = "error"
+)
+
+const (
 	defaultStateEventsDestination    = "websub-events"
 	defaultStateSnapshotsDestination = "websub-events-snapshots"
 )
@@ -57,6 +64,7 @@ func (d *Duration) UnmarshalText(text []byte) error {
 func (d Duration) Value() time.Duration { return time.Duration(d) }
 
 type HubConfig struct {
+	Logging      Logging            `toml:"logging"`
 	Server       HubServer          `toml:"server"`
 	Operations   OperationsServer   `toml:"operations"`
 	Security     Security           `toml:"security"`
@@ -65,6 +73,10 @@ type HubConfig struct {
 	State        HubState           `toml:"state"`
 	Delivery     Delivery           `toml:"delivery"`
 	MessageStore MessageStore       `toml:"message_store"`
+}
+
+type Logging struct {
+	Level string `toml:"level"`
 }
 
 type OperationsServer struct {
@@ -149,6 +161,7 @@ type ClientAuth struct {
 }
 
 type ConsolidatorConfig struct {
+	Logging      Logging            `toml:"logging"`
 	Server       ConsolidatorServer `toml:"server"`
 	State        ConsolidatorState  `toml:"state"`
 	MessageStore MessageStore       `toml:"message_store"`
@@ -277,6 +290,7 @@ type KafkaSASL struct {
 
 func HubDefaults() HubConfig {
 	return HubConfig{
+		Logging:    Logging{Level: LogLevelInfo},
 		Server:     HubServer{Listen: ":8080", PublicURL: "http://127.0.0.1:8080/websub", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(30 * time.Second), WriteTimeout: Duration(30 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second)},
 		Operations: OperationsServer{Listen: "127.0.0.1:9090", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(15 * time.Second), WriteTimeout: Duration(15 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second)},
 		Security: Security{
@@ -333,7 +347,8 @@ func HubDefaults() HubConfig {
 
 func ConsolidatorDefaults() ConsolidatorConfig {
 	return ConsolidatorConfig{
-		Server: ConsolidatorServer{Listen: ":8081", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(30 * time.Second), WriteTimeout: Duration(30 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second), Auth: ServerAuth{Mode: "none"}},
+		Logging: Logging{Level: LogLevelInfo},
+		Server:  ConsolidatorServer{Listen: ":8081", ReadHeaderTimeout: Duration(5 * time.Second), ReadTimeout: Duration(30 * time.Second), WriteTimeout: Duration(30 * time.Second), IdleTimeout: Duration(60 * time.Second), ShutdownTimeout: Duration(30 * time.Second), Auth: ServerAuth{Mode: "none"}},
 		State: ConsolidatorState{
 			Events:    StateDestination{Destination: defaultStateEventsDestination, Retention: Duration(7 * 24 * time.Hour)},
 			Snapshots: StateDestination{Destination: defaultStateSnapshotsDestination, Retention: Duration(30 * 24 * time.Hour)},
@@ -384,6 +399,9 @@ func load[T any](path string, environ []string, cfg T, validate func(T) error) (
 }
 
 func (c HubConfig) Validate() error {
+	if err := c.Logging.validate(); err != nil {
+		return err
+	}
 	if c.Server.ID == "" {
 		return errors.New("server.id is required")
 	}
@@ -626,6 +644,9 @@ func (c ResourceProtocol) validate() error {
 }
 
 func (c ConsolidatorConfig) Validate() error {
+	if err := c.Logging.validate(); err != nil {
+		return err
+	}
 	if c.Server.Listen == "" {
 		return errors.New("server.listen is required")
 	}
@@ -639,6 +660,15 @@ func (c ConsolidatorConfig) Validate() error {
 		return err
 	}
 	return c.MessageStore.validate()
+}
+
+func (c Logging) validate() error {
+	switch c.Level {
+	case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
+		return nil
+	default:
+		return errors.New("logging.level must be \"debug\", \"info\", \"warn\", or \"error\"")
+	}
 }
 
 func (c HubState) validate() error {

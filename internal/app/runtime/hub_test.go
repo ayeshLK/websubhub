@@ -18,6 +18,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ayeshLK/websubhub/internal/config"
@@ -26,6 +27,17 @@ import (
 	"github.com/ayeshLK/websubhub/internal/persistence/messagestore"
 	"github.com/ayeshLK/websubhub/internal/state"
 )
+
+func TestRuntimesRequireLogger(t *testing.T) {
+	t.Parallel()
+
+	if err := RunHub(t.Context(), config.HubDefaults(), nil); err == nil || !strings.Contains(err.Error(), "logger") {
+		t.Fatalf("RunHub() error = %v", err)
+	}
+	if err := RunConsolidator(t.Context(), config.ConsolidatorDefaults(), nil); err == nil || !strings.Contains(err.Error(), "logger") {
+		t.Fatalf("RunConsolidator() error = %v", err)
+	}
+}
 
 func TestPublicMuxExposesOnlyConfiguredHubPath(t *testing.T) {
 	handler, err := publicMux("https://hub.example.test/websub", http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusNoContent) }))
