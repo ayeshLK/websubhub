@@ -38,8 +38,33 @@ release is `v0.6.0`, built from annotated tag `v0.6.0` at source commit
 `4e41d3dde79f1f8e909103a519582006dbf7ca62` after PR #21 merged. It introduces
 the explicit API authentication modes from PR #18 and remains a pre-1.0
 developer preview, regardless of the GitHub release's prerelease flag. `main`
-currently declares `version=0.6.0`; the release workflow opened green PR #22
-to advance it to `version=0.6.1-SNAPSHOT`, but that PR is not yet merged.
+currently declares `version=0.6.1-SNAPSHOT` after PR #22 merged at commit
+`3ed798ef80887a1287eb7fc1dfed37d991f3b649`. PR #23 then refreshed the GitHub
+product profile, and PR #24 added the Docker Hub product profiles; `main` was
+at commit `cb9fca2bb384147de14baa420a0c5f5d7e16b151` after those merges.
+
+PR #23 establishes the current GitHub positioning around "Durable HTTP event
+delivery, backed by Kafka today." The qualifier describes the current profile,
+not a permanent product-identity constraint; reconsider provider-specific
+branding as additional supported profiles ship. The README leads with the
+value proposition, current `v0.6.0` developer-preview status, primary links,
+comparison context, and an earlier quickstart. The live repository description
+and discovery topics are populated. Every release preparation must review the
+repository description, topics, README positioning and version status, links,
+badges, social preview, and provider-specific wording.
+
+PR #24 adds version-controlled Docker Hub overview sources at
+`docs/dockerhub/websubhub.md` and
+`docs/dockerhub/websubhub-consolidator.md`. The consolidator description is
+"Canonical state and snapshot service for WebSubHub deployments." The
+`Sync Docker Hub profiles` workflow owns both short descriptions, publishes
+the two overview sources through the protected `release` environment, runs
+after a successful `Release` workflow, and supports manual retries. The live
+Docker Hub repositories currently have both descriptions and overviews. Keep
+the checked-in sources and workflow inputs authoritative; do not make a
+live-only profile edit. Docker Hub profile content, tag policy, supported
+platforms, component roles, configuration guidance, and security claims must
+be reviewed with every release.
 
 ADR 0018 fixes lockstep versions with independent component packages. The
 release configuration builds 12 archives: `websubhub` and
@@ -74,8 +99,8 @@ release-automation changes after the tag, and must fail closed for product-code
 changes, tag-target mismatches, or an existing release/artifact. `v0.5.0` then
 published successfully; this recovery path is no longer applicable to that
 version. The same reviewed flow prepared and published `v0.6.0`, then opened
-PR #22 for the next snapshot. Do not edit a released version back to a
-snapshot on the tagged commit.
+and merged PR #22 for the next snapshot. Do not edit a released version back
+to a snapshot on the tagged commit.
 
 PR #6 implements the protected internal control-plane BFF query contract:
 
