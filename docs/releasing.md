@@ -96,27 +96,33 @@ signing. The container check builds both production targets and executes their
 
 ## Publishing checklist
 
-1. Confirm `main` contains the intended `X.Y.Z-SNAPSHOT`, CI passes, and
+1. Review the GitHub product profile for the release. Confirm the repository
+   description, topics, README positioning and current-version status, primary
+   links, badges, and social preview accurately represent the shipped product.
+   Revisit provider-specific wording such as "backed by Kafka" as the product
+   gains additional supported profiles; do not let current implementation
+   detail become a permanent product-identity constraint.
+2. Confirm `main` contains the intended `X.Y.Z-SNAPSHOT`, CI passes, and
    [the preview disclosure](../.github/release-notes/developer-preview.md)
    accurately states limitations, at-least-once duplicate windows, and upgrade
    impact.
-2. Run the local dry run with the pinned tool versions.
-3. Open **Actions → Prepare release → Run workflow** and select `main`. Do not
+3. Run the local dry run with the pinned tool versions.
+4. Open **Actions → Prepare release → Run workflow** and select `main`. Do not
    enter a version; the workflow reads `release.properties`.
-4. Approve the generated pull request CI, review the one-line change from
+5. Approve the generated pull request CI, review the one-line change from
    `X.Y.Z-SNAPSHOT` to `X.Y.Z`, and merge it after all checks pass.
-5. Confirm both Docker Hub repositories are public, the scoped token works, the
+6. Confirm both Docker Hub repositories are public, the scoped token works, the
    protected `release` environment allows `main`, and the `v*` tag rules are
    active.
-6. Open **Actions → Release → Run workflow**, select `main`, and start it without
+7. Open **Actions → Release → Run workflow**, select `main`, and start it without
    entering a version.
-7. Review the declared tag and exact source commit in the verification summary.
+8. Review the declared tag and exact source commit in the verification summary.
    Do not approve an unexpected candidate.
-8. Approve the protected `release` environment after verification passes.
-9. Confirm both image digests and all release assets, signatures, SBOMs, and
+9. Approve the protected `release` environment after verification passes.
+10. Confirm both image digests and all release assets, signatures, SBOMs, and
    attestations exist. The workflow publishes the GitHub draft only after both
    container publications succeed.
-10. Approve CI on the generated next-development pull request, verify its patch
+11. Approve CI on the generated next-development pull request, verify its patch
     increment, and merge it.
 
 Do not manually create, move, or delete a release tag. If failure occurs after
