@@ -18,7 +18,7 @@ package state
 
 import "time"
 
-const SchemaVersion uint16 = 2
+const SchemaVersion uint16 = 1
 
 type TopicStatus string
 

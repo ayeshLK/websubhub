@@ -220,18 +220,20 @@ therefore selects the previously verified archive or image digest. Whether a
 state rollback is safe depends on the release-specific schema and migration
 notes; do not infer compatibility only from the binary version.
 
-The topic-governed content-type contract introduced with state schema version 2
-is not an in-place migration. To move from schema version 1, stop every hub and
+The topic-governed content-type contract in `0.7.0` redefines preview state
+schema version 1 because the pre-1.0 product has no production adoption. It is
+still not an in-place upgrade from an earlier preview. Stop every hub and
 consolidator, retain the old state destinations for rollback, configure new
-empty event and snapshot destinations, start the schema-v2 deployment, and
+empty event and snapshot destinations, start the `0.7.0` deployment, and
 re-register topics and subscriptions. Supply `hub.content_type` for every
 non-JSON topic; omission selects `application/json`. Old content destinations
-are not rewritten or replayed. Runtime startup rejects schema-v1 records
-instead of guessing a topic contract.
+are not rewritten or replayed. Runtime startup rejects legacy topic records
+that omit the required content type instead of guessing a contract.
 
-Rollback requires stopping all schema-v2 processes and restoring both the
-schema-v1 binaries and retained schema-v1 state destinations. Never point
-schema-v1 and schema-v2 processes at the same state destinations.
+Rollback requires stopping all `0.7.0` processes and restoring both the
+earlier binaries and retained state destinations. Never point earlier-preview
+and `0.7.0` processes at the same state destinations even though both use
+schema version 1.
 
 ## Current preview limitations
 

@@ -47,33 +47,36 @@ envelope: it owns source topic ID, subscription ID, failure class, attempt, and
 storage diagnostics while retaining the original message body and ID. It must
 not add those fields to the ordinary content message.
 
-State event and snapshot schema version 2 adds required `Topic.ContentType` and
-uses version 2 StateStore media types. Version 1 records remain rejected at
-runtime; startup never guesses or rewrites their topic contracts.
-This persisted schema version is independent of the pre-1.0 product version.
-Pre-1.0 releases may make breaking product changes, but reusing schema version
-1 for an incompatible record shape would prevent startup from unambiguously
-identifying and rejecting old persisted state.
+State event and snapshot schema version 1 is redefined to add required
+`Topic.ContentType`; the StateStore media types remain at version 1. This
+exception is accepted because the product is pre-1.0 and has no production
+adoption. It must not be used as precedent once a production or stable
+compatibility boundary exists.
 
-The supported developer-preview transition from version 1 is an explicit
-offline clean-state replacement:
+Previously emitted preview schema-version-1 state is not compatible. Topic
+registration events and snapshots that omit the required content type fail
+validation; startup never guesses or rewrites their topic contracts.
+
+The supported transition from an earlier preview is an explicit offline
+clean-state replacement:
 
 1. stop all hubs and consolidators;
-2. retain the version 1 state destinations for rollback;
-3. configure new, empty version 2 state-event and snapshot destinations;
-4. start the version 2 deployment; and
+2. retain the earlier-preview state destinations for rollback;
+3. configure new, empty state-event and snapshot destinations;
+4. start the `0.7.0` deployment; and
 5. re-register topics, explicitly supplying non-JSON content types, then
    recreate subscriptions.
 
 Old content destinations are not rewritten. New subscriptions begin at their
 documented latest boundary, so pre-transition content is not replayed through
-the new contract. Recovery fixtures must prove that version 1 events and
-snapshots fail closed and that version 2 topic content types round-trip
-deterministically.
+the new contract. Recovery fixtures must prove that legacy preview events and
+snapshots without topic content types fail closed and that the redefined
+version-1 records round-trip deterministically.
 
-Downgrade requires stopping every version 2 process and restoring both the
-version 1 binaries and the retained version 1 state destinations. Version 1 and
-version 2 processes must not share state destinations.
+Downgrade requires stopping every `0.7.0` process and restoring both the
+earlier binaries and their retained state destinations. Earlier and `0.7.0`
+processes must not share state destinations even though both media types say
+version 1.
 
 ## Consequences
 

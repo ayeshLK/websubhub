@@ -148,13 +148,14 @@ func TestSnapshotEncodingIsDeterministicAndStrict(t *testing.T) {
 	if roundTrip.Topics["topic-1"].ContentType != "application/json" {
 		t.Fatalf("topic content type = %q", roundTrip.Topics["topic-1"].ContentType)
 	}
-	if _, err := DecodeSnapshot([]byte(`{"schema_version":1,"revision":0,"topics":[],"subscriptions":[]}`)); err == nil {
-		t.Fatal("version 1 snapshot accepted")
+	legacyPreview := []byte(`{"schema_version":1,"revision":1,"topics":[{"id":"topic-1","canonical_url":"https://publisher.example/resource","content_destination":"content-1","status":"active","registered_at":"2026-08-25T10:00:00Z","revision":1}],"subscriptions":[]}`)
+	if _, err := DecodeSnapshot(legacyPreview); err == nil {
+		t.Fatal("legacy preview snapshot without topic content type accepted")
 	}
 	if _, err := DecodeSnapshot([]byte(`{"schema_version":3,"revision":0,"topics":[],"subscriptions":[]}`)); err == nil {
 		t.Fatal("unknown version accepted")
 	}
-	if _, err := DecodeSnapshot([]byte(`{"schema_version":2,"revision":0,"topics":[],"subscriptions":[],"provider_offset":1}`)); err == nil {
+	if _, err := DecodeSnapshot([]byte(`{"schema_version":1,"revision":0,"topics":[],"subscriptions":[],"provider_offset":1}`)); err == nil {
 		t.Fatal("unknown field accepted")
 	}
 }

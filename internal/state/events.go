@@ -112,5 +112,11 @@ func validateEvent(event Event) error {
 	if meta.Actor.Type == "" {
 		return errors.New("actor type is required")
 	}
+	if registered, ok := event.(TopicRegistered); ok {
+		normalized, err := NormalizeContentType(registered.Topic.ContentType)
+		if err != nil || normalized != registered.Topic.ContentType {
+			return errors.New("topic registration content type is invalid")
+		}
+	}
 	return nil
 }
