@@ -39,7 +39,6 @@ ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.authors="Ayesh Almeida and WebSubHub contributors" \
       org.opencontainers.image.created=$BUILD_DATE \
-      org.opencontainers.image.description="WebSubHub open-source HTTP Event Broker" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.revision=$COMMIT \
       org.opencontainers.image.source="https://github.com/ayeshLK/websubhub" \
@@ -47,7 +46,8 @@ LABEL org.opencontainers.image.authors="Ayesh Almeida and WebSubHub contributors
 USER nonroot:nonroot
 
 FROM runtime AS websubhub
-LABEL org.opencontainers.image.title="websubhub"
+LABEL org.opencontainers.image.title="WebSubHub" \
+      org.opencontainers.image.description="HTTP event broker for durable, at-least-once WebSub delivery backed by your Kafka."
 COPY --from=build --chown=nonroot:nonroot /src/LICENSE /licenses/websubhub/LICENSE
 COPY --from=build --chown=nonroot:nonroot /src/NOTICE /licenses/websubhub/NOTICE
 COPY --from=build --chown=nonroot:nonroot /out/websubhub /usr/local/bin/websubhub
@@ -55,7 +55,8 @@ EXPOSE 8080 9090
 ENTRYPOINT ["/usr/local/bin/websubhub"]
 
 FROM runtime AS websubhub-consolidator
-LABEL org.opencontainers.image.title="websubhub-consolidator"
+LABEL org.opencontainers.image.title="WebSubHub Consolidator" \
+      org.opencontainers.image.description="Canonical state and snapshot service for WebSubHub deployments."
 COPY --from=build --chown=nonroot:nonroot /src/LICENSE /licenses/websubhub-consolidator/LICENSE
 COPY --from=build --chown=nonroot:nonroot /src/NOTICE /licenses/websubhub-consolidator/NOTICE
 COPY --from=build --chown=nonroot:nonroot /out/websubhub-consolidator /usr/local/bin/websubhub-consolidator
