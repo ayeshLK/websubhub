@@ -79,6 +79,55 @@ brokers = ["kafka:9092"]
 	}
 }
 
+func TestLoggingLevelDefaultsAndEnvironmentOverrides(t *testing.T) {
+	t.Parallel()
+
+	if got := HubDefaults().Logging.Level; got != LogLevelInfo {
+		t.Fatalf("hub default logging level = %q", got)
+	}
+	if got := ConsolidatorDefaults().Logging.Level; got != LogLevelInfo {
+		t.Fatalf("consolidator default logging level = %q", got)
+	}
+	hub, err := LoadHub("", noneAuthEnvironment(
+		"WEBSUBHUB__SERVER__ID=hub-1",
+		"WEBSUBHUB__LOGGING__LEVEL=debug",
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hub.Logging.Level != LogLevelDebug {
+		t.Fatalf("hub logging level = %q", hub.Logging.Level)
+	}
+	consolidator, err := LoadConsolidator("", []string{
+		"WEBSUBHUB__LOGGING__LEVEL=error",
+		`WEBSUBHUB__MESSAGE_STORE__KAFKA__BROKERS=["kafka:9092"]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consolidator.Logging.Level != LogLevelError {
+		t.Fatalf("consolidator logging level = %q", consolidator.Logging.Level)
+	}
+}
+
+func TestLoggingLevelValidationIsStrict(t *testing.T) {
+	t.Parallel()
+
+	for _, level := range []string{"", "INFO", "warning", "off"} {
+		hub := validHubConfig()
+		hub.Logging.Level = level
+		if err := hub.Validate(); err == nil || !strings.Contains(err.Error(), "logging.level") {
+			t.Fatalf("hub level %q error = %v", level, err)
+		}
+		consolidator := ConsolidatorDefaults()
+		consolidator.Logging.Level = level
+		if err := consolidator.Validate(); err == nil || !strings.Contains(err.Error(), "logging.level") {
+			t.Fatalf("consolidator level %q error = %v", level, err)
+		}
+	}
+}
+
 func TestEnvironmentArrayOverride(t *testing.T) {
 	cfg, err := LoadHub("", noneAuthEnvironment(
 		"WEBSUBHUB__SERVER__ID=hub-1",

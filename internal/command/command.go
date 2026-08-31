@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,6 +28,7 @@ import (
 	appRuntime "github.com/ayeshLK/websubhub/internal/app/runtime"
 	"github.com/ayeshLK/websubhub/internal/buildinfo"
 	"github.com/ayeshLK/websubhub/internal/config"
+	"github.com/ayeshLK/websubhub/internal/observe"
 )
 
 func Run(component string, args []string, stdout, stderr io.Writer) int {
@@ -35,12 +37,12 @@ func Run(component string, args []string, stdout, stderr io.Writer) int {
 	return RunContext(ctx, component, args, os.Environ(), stdout, stderr)
 }
 
-func writeAuthenticationWarnings(destination io.Writer, cfg config.HubConfig) {
+func writeAuthenticationWarnings(logger *slog.Logger, cfg config.HubConfig) {
 	if cfg.Server.Auth.Mode == config.AuthModeNone {
-		fmt.Fprintln(destination, "websubhub: warning: public API authentication is disabled by server.auth.mode = \"none\"")
+		logger.Warn("API authentication is disabled", "operation", "authentication_disabled", "surface", "public", "auth_mode", config.AuthModeNone)
 	}
 	if cfg.Operations.Auth.Mode == config.AuthModeNone {
-		fmt.Fprintln(destination, "websubhub: warning: operations API authentication is disabled by operations.auth.mode = \"none\"")
+		logger.Warn("API authentication is disabled", "operation", "authentication_disabled", "surface", "operations", "auth_mode", config.AuthModeNone)
 	}
 }
 
@@ -65,27 +67,51 @@ func RunContext(ctx context.Context, component string, args, environ []string, s
 		fmt.Fprintf(stdout, "%s %s\n", component, buildinfo.Current())
 		return 0
 	}
-	var err error
+	bootstrapLogger := observe.NewLogger(stderr, slog.LevelInfo).With("component", component)
 	switch component {
 	case "websubhub":
-		var cfg config.HubConfig
-		cfg, err = config.LoadHub(*configPath, environ)
-		if err == nil {
-			writeAuthenticationWarnings(stderr, cfg)
-			err = appRuntime.RunHub(ctx, cfg)
+		cfg, err := config.LoadHub(*configPath, environ)
+		if err != nil {
+			bootstrapLogger.Error("configuration rejected", "operation", "configuration_load", "error_class", "configuration")
+			return 1
 		}
+		logger := configuredLogger(stderr, component, cfg.Logging.Level)
+		writeAuthenticationWarnings(logger, cfg)
+		logProcessStarting(logger, cfg.MessageStore.Provider)
+		if err := appRuntime.RunHub(ctx, cfg, logger); err != nil {
+			logger.Error("process failed", "operation", "process_failed", "error_class", "runtime")
+			return 1
+		}
+		logger.Info("process stopped", "operation", "process_stopped")
 	case "websubhub-consolidator":
-		var cfg config.ConsolidatorConfig
-		cfg, err = config.LoadConsolidator(*configPath, environ)
-		if err == nil {
-			err = appRuntime.RunConsolidator(ctx, cfg)
+		cfg, err := config.LoadConsolidator(*configPath, environ)
+		if err != nil {
+			bootstrapLogger.Error("configuration rejected", "operation", "configuration_load", "error_class", "configuration")
+			return 1
 		}
+		logger := configuredLogger(stderr, component, cfg.Logging.Level)
+		logProcessStarting(logger, cfg.MessageStore.Provider)
+		if err := appRuntime.RunConsolidator(ctx, cfg, logger); err != nil {
+			logger.Error("process failed", "operation", "process_failed", "error_class", "runtime")
+			return 1
+		}
+		logger.Info("process stopped", "operation", "process_stopped")
 	default:
-		err = fmt.Errorf("unknown component %q", component)
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", component, err)
+		bootstrapLogger.Error("unknown component", "operation", "component_selection", "error_class", "configuration")
 		return 1
 	}
 	return 0
+}
+
+func configuredLogger(destination io.Writer, component, levelName string) *slog.Logger {
+	level, err := observe.Level(levelName)
+	if err != nil {
+		level = slog.LevelInfo
+	}
+	return observe.NewLogger(destination, level).With("component", component)
+}
+
+func logProcessStarting(logger *slog.Logger, provider string) {
+	build := buildinfo.Current()
+	logger.Info("process starting", "operation", "process_starting", "provider", provider, "version", build.Version, "commit", build.Commit, "build_date", build.Date)
 }

@@ -28,6 +28,10 @@ process:
 On Windows, use `bin\\websubhub.exe`. Run `bin/websubhub --version` to inspect
 embedded version metadata.
 
+The process writes newline-delimited JSON logs to standard error. Set
+`logging.level` to `debug`, `info`, `warn`, or `error`; the default is `info`
+and changes require a restart.
+
 The hub and consolidator are independently deployable but released under one
 lockstep product version. The hub-to-consolidator connection should use mTLS;
 `none` is intended only for an isolated trusted network.

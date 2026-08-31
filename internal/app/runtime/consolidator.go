@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/ayeshLK/websubhub/internal/app/httpruntime"
 	"github.com/ayeshLK/websubhub/internal/app/provider"
@@ -29,13 +30,17 @@ import (
 	"github.com/ayeshLK/websubhub/internal/transport/mtls"
 )
 
-func RunConsolidator(ctx context.Context, cfg config.ConsolidatorConfig) (resultErr error) {
+func RunConsolidator(ctx context.Context, cfg config.ConsolidatorConfig, logger *slog.Logger) (resultErr error) {
 	if ctx == nil {
 		return errors.New("context is required")
+	}
+	if logger == nil {
+		return errors.New("logger is required")
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	logger.Info("runtime initialization started", "operation", "runtime_initializing", "provider", cfg.MessageStore.Provider)
 	kafkaConfig, err := provider.Kafka(cfg.MessageStore)
 	if err != nil {
 		return err
@@ -69,6 +74,7 @@ func RunConsolidator(ctx context.Context, cfg config.ConsolidatorConfig) (result
 	if err := service.Start(ctx); err != nil {
 		return err
 	}
+	logger.Info("state service caught up", "operation", "state_service_ready", "revision", service.Snapshot().Revision)
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.Server.ShutdownTimeout.Value())
 		defer cancel()
@@ -87,6 +93,7 @@ func RunConsolidator(ctx context.Context, cfg config.ConsolidatorConfig) (result
 			return err
 		}
 	}
+	logger.Info("runtime initialized", "operation", "runtime_initialized", "provider", cfg.MessageStore.Provider)
 
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(context.Canceled)

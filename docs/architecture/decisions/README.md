@@ -24,6 +24,7 @@ tests, configuration, and release claims.
 - [ADR 0019: Validate and retain MessageStore subscription options](0019-subscription-context-message-store-consumers.md)
 - [ADR 0020: Automated release authority](0020-automated-release-authority.md)
 - [ADR 0021: Explicit API authentication modes](0021-explicit-api-authentication-modes.md)
+- [ADR 0022: Structured runtime logging](0022-structured-runtime-logging.md)
 - [Open implementation gates](open-gates.md)
 
 Persisted-schema changes require an explicit replacement ADR, offline migration

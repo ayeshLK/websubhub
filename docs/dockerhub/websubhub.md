@@ -76,6 +76,7 @@ WebSubHub uses strict, process-specific TOML configuration. Start from the
 [`websubhub` example](https://github.com/ayeshLK/websubhub/blob/main/configs/websubhub.example.toml)
 and configure:
 
+- the `debug`, `info`, `warn`, or `error` structured log level;
 - the stable server identity, public URL, and listener addresses;
 - explicit `none` or `jwt` modes for both public and operations listeners;
 - Kafka brokers plus optional TLS, mTLS, and SASL settings;
@@ -86,6 +87,10 @@ Environment variables override TOML leaves using the `WEBSUBHUB__` prefix and
 double underscores between nested keys. Credentials, keys, and certificates
 should be mounted as files rather than embedded in the image or configuration.
 Invalid or incomplete security configuration fails closed.
+
+The container writes newline-delimited JSON logs to standard error. Override
+the default `info` level with `WEBSUBHUB__LOGGING__LEVEL`; changes require a
+container restart.
 
 ## Tags and platforms
 
