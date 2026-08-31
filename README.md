@@ -1,26 +1,39 @@
+<div align="center">
+
 # WebSubHub
 
+**Durable HTTP event delivery, backed by Kafka today.**
+
+An open-source, self-hosted HTTP event broker for reliable event delivery
+across service, network, and organizational boundaries.
+
+[Quick start](#quick-start) · [Install](docs/installing.md) ·
+[Releases](https://github.com/ayeshLK/websubhub/releases) ·
+[Architecture](docs/architecture/decisions/README.md) ·
+[Contributing](CONTRIBUTING.md)
+
 [![CI](https://github.com/ayeshLK/websubhub/actions/workflows/ci.yml/badge.svg)](https://github.com/ayeshLK/websubhub/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/ayeshLK/websubhub)](https://github.com/ayeshLK/websubhub/releases/latest)
 [![Go version](https://img.shields.io/github/go-mod/go-version/ayeshLK/websubhub)](go.mod)
 [![License](https://img.shields.io/github/license/ayeshLK/websubhub)](LICENSE)
-[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#project-status)
+[![Status: developer preview](https://img.shields.io/badge/status-developer%20preview-orange)](#project-status)
 
-**Make HTTP a complete, open event-broker interface across organizational
-boundaries.**
+</div>
 
-WebSubHub is an open-source, self-hosted **HTTP Event Broker**. Publishers use
-HTTP, WebSubHub owns durable event and subscription behavior, and verified
-subscribers receive at-least-once HTTP push delivery. Kafka provides the
-durable engine for the first Bring Your Own Broker (BYOB) profile without
-leaking Kafka clients, offsets, consumer groups, or credentials into the public
-product contract.
+Publishers use ordinary HTTP. WebSubHub owns durable content, subscriptions,
+retries, and delivery progress. Verified subscribers receive at-least-once
+HTTP push delivery without integrating with Kafka clients, offsets, consumer
+groups, or credentials.
+
+Kafka is the durable engine for the current Bring Your Own Broker (BYOB)
+profile, not part of the public integration contract. The product boundary is
+designed to support additional persistence providers in the future.
 
 > [!IMPORTANT]
-> WebSubHub is under active development and has not published a supported
-> runtime release. The current `v0.5.0` target is a developer preview of the
-> Kafka-backed **WebSub resource-topic** path. The CloudEvents event-stream API,
-> renewal, lease expiry, and automatic ownership failover are not implemented
-> yet. Do not treat the current branch as production-ready.
+> The current release, [`v0.6.0`](https://github.com/ayeshLK/websubhub/releases/tag/v0.6.0),
+> is a pre-1.0 Kafka BYOB developer preview. It implements the WebSub
+> resource-topic path and is not a production-readiness claim. Delivery is at
+> least once, so subscribers must handle duplicates idempotently.
 
 ## Why WebSubHub?
 
@@ -42,13 +55,57 @@ WebSubHub puts an HTTP-native boundary around those broker responsibilities:
 Delivery is deliberately **at least once**. Subscribers must handle duplicates
 idempotently; WebSubHub does not claim end-to-end exactly-once delivery.
 
+### Where it fits
+
+| Approach | Integration boundary | Your application owns |
+|---|---|---|
+| Ordinary webhooks | HTTP | Persistence, callback verification, retries, progress, and dead-letter handling |
+| Direct Kafka access | Kafka clients and broker identities | Broker-specific integration and external access policy |
+| **WebSubHub** | HTTP publishing and verified HTTP callbacks | Idempotent handling of at-least-once delivery |
+
+WebSubHub is intended for platform teams and service owners that need durable
+HTTP event delivery while keeping broker infrastructure behind a controlled
+product boundary.
+
+## Quick start
+
+### Prerequisites
+
+- Go 1.25.8 or a newer supported Go release
+- Docker with Compose v2
+- OpenSSL
+- GNU Make (optional, but used by the commands below)
+
+Clone the repository:
+
+```sh
+git clone https://github.com/ayeshLK/websubhub.git
+cd websubhub
+```
+
+To start the topology and keep it running while you register a topic, verify a
+subscription, publish content, inspect delivery, and query operations, follow
+the [interactive Docker Compose quickstart](docs/compose-quickstart.md).
+
+To run the same topology as an automated acceptance test that cleans up after
+itself:
+
+```sh
+make compose-smoke
+```
+
+The smoke test builds the two services and exercises the Kafka-backed,
+two-hub topology, authenticated publishing, verified subscriptions,
+at-least-once delivery, retry and dead-letter behavior, shared progress, and
+owner restart recovery.
+
 ## Two explicit topic contracts
 
 WebSubHub keeps resource distribution and immutable event streams distinct.
 
 | Contract | Intended use | Status |
 |---|---|---|
-| **WebSub resource topic** | Distribute the current representation of a URL-addressed resource using the W3C WebSub lifecycle | Implemented by the `v0.5.0` preview |
+| **WebSub resource topic** | Distribute the current representation of a URL-addressed resource using the W3C WebSub lifecycle | Available in the `v0.6.0` preview |
 | **CloudEvents event stream** | Distribute immutable events with broker-owned retention, progress, pause/resume, replay, and DLQ semantics | Public contract is gated and not implemented |
 
 WebSub conformance claims apply only to relevant resource-topic behavior. The
@@ -124,48 +181,6 @@ remain operational failures. These values are not credential fields or product
 identities and are omitted from management responses, metrics, and logs.
 Delivery remains at least once in both modes.
 
-## Quick start
-
-### Prerequisites
-
-- Go 1.25.8 or a newer supported Go release
-- Docker with Compose v2
-- OpenSSL
-- GNU Make (optional, but used by the commands below)
-
-Clone the repository:
-
-```sh
-git clone https://github.com/ayeshLK/websubhub.git
-cd websubhub
-```
-
-To start the topology and keep it running while you register a topic, verify a
-subscription, publish content, inspect delivery, and query operations, follow
-the [interactive Docker Compose quickstart](docs/compose-quickstart.md).
-
-To run the same topology as an automated acceptance test that cleans up after
-itself:
-
-```sh
-make compose-smoke
-```
-
-The smoke test:
-
-1. builds static local binaries;
-2. generates ignored, two-day test credentials;
-3. starts Kafka 4.1.0, the consolidator, two hubs, and a controlled
-   JWT/subscriber fixture;
-4. exercises authentication, registration, verification, exact content,
-   signed delivery, retry, DLQ, stale/removal behavior, cross-hub projection,
-   custom-group and explicit-partition delivery, shared progress, and owner restart recovery;
-5. removes its containers, network, and Kafka volume when it exits.
-
-Generated local credentials remain under
-`deploy/compose/.generated/` and must never be reused outside this test
-topology.
-
 ## Build
 
 Build both services:
@@ -179,7 +194,7 @@ make build
 Build metadata can be supplied explicitly:
 
 ```sh
-make build VERSION=v0.5.0-dev COMMIT=local BUILD_DATE=2026-08-27T00:00:00Z
+make build VERSION=v0.6.1-dev COMMIT=local BUILD_DATE=2026-08-31T00:00:00Z
 ```
 
 The binaries accept a process-specific TOML file:
@@ -214,22 +229,20 @@ The included TOML is a secure template rather than runnable credentials. Start
 Kafka, then the consolidator, then one or more hubs. Use the same release
 version for both processes.
 
-Production container targets are published separately for Linux `amd64` and
-`arm64`:
+Container images are published separately for Linux `amd64` and `arm64`:
 
 ```sh
-docker pull ayeshalmeida/websubhub:0.5.0
-docker pull ayeshalmeida/websubhub-consolidator:0.5.0
+docker pull ayeshalmeida/websubhub:0.6.0
+docker pull ayeshalmeida/websubhub-consolidator:0.6.0
 
-docker run --rm ayeshalmeida/websubhub:0.5.0 --version
-docker run --rm ayeshalmeida/websubhub-consolidator:0.5.0 --version
+docker run --rm ayeshalmeida/websubhub:0.6.0 --version
+docker run --rm ayeshalmeida/websubhub-consolidator:0.6.0 --version
 ```
 
-These commands become available when `v0.5.0` is published; the repository has
-not yet published that preview. Runtime deployments must mount the appropriate
-configuration and secret files and provide Kafka/network connectivity. Images
-run as non-root and intentionally contain only their component application
-binary.
+Runtime deployments must mount the appropriate configuration and secret files
+and provide Kafka/network connectivity. Images run as non-root and
+intentionally contain only their component application binary. Preview images
+publish exact semantic-version tags and do not publish `latest`.
 
 Release assets include SHA-256 checksums, per-archive SPDX JSON SBOMs, keyless
 Sigstore signatures, and provenance attestations. Initial macOS and Windows
@@ -320,7 +333,7 @@ StateStore events remain the durable source of truth. Management visibility
 does not guarantee that a particular hub's local admission projection has
 caught up. Consolidator failure returns `503` without a local-projection
 fallback. Collection limits are bounded to 100; cursor pagination is reserved
-but not implemented in v0.5.
+but not implemented in the current preview.
 
 Both listeners require an explicit `none` or `jwt` authentication mode. The
 packaged developer configuration selects `none`; the production example and
@@ -347,13 +360,14 @@ test/acceptance/                  end-to-end Compose acceptance test
 
 ## Project status
 
-The repository has completed the implementation slices through the Kafka
-Compose acceptance topology and now includes guarded release foundations for
-independent six-platform archives and the two Docker Hub images. No runtime
-release has been published. Work remaining before the first developer preview
-is limited to automated release-tag protection and an end-to-end
-release-candidate rehearsal. Broader request-admission and load/isolation
-qualification is deferred under
+The current release is `v0.6.0`, a pre-1.0 Kafka BYOB developer preview. It
+publishes separate `websubhub` and `websubhub-consolidator` archives for six
+platform and architecture combinations, plus separate multi-architecture
+Docker Hub images. `main` continues development toward `v0.6.1`.
+
+The preview is suitable for evaluation and integration feedback, not a claim
+of production readiness. Broader request-admission and load/isolation
+qualification remains deferred under
 [issue #11](https://github.com/ayeshLK/websubhub/issues/11).
 
 Later releases add the gated CloudEvents event-stream contract, renewal and
