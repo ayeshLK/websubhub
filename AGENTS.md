@@ -147,6 +147,8 @@ exposes it. The supported schema-v1 transition is an offline clean-state
 replacement using new state event and snapshot destinations followed by topic
 and subscription recreation. Runtime migration and mixed schema-v1/schema-v2
 state destinations are forbidden.
+The feature begins the `0.7.0-SNAPSHOT` minor development line; do not move it
+back to the automatically opened `0.6.2-SNAPSHOT` patch line.
 
 ## Required workflow
 

@@ -50,6 +50,10 @@ not add those fields to the ordinary content message.
 State event and snapshot schema version 2 adds required `Topic.ContentType` and
 uses version 2 StateStore media types. Version 1 records remain rejected at
 runtime; startup never guesses or rewrites their topic contracts.
+This persisted schema version is independent of the pre-1.0 product version.
+Pre-1.0 releases may make breaking product changes, but reusing schema version
+1 for an incompatible record shape would prevent startup from unambiguously
+identifying and rejecting old persisted state.
 
 The supported developer-preview transition from version 1 is an explicit
 offline clean-state replacement:
