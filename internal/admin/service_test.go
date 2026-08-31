@@ -154,7 +154,7 @@ func canonicalSnapshot() state.Snapshot {
 	snapshot := state.EmptySnapshot()
 	snapshot.Revision = 7
 	topicURL := "https://publisher.example/resource"
-	snapshot.Topics[topicURL] = state.Topic{ID: topicURL, CanonicalURL: topicURL, ContentDestination: "internal-content", Status: state.TopicActive, Revision: 1}
+	snapshot.Topics[topicURL] = state.Topic{ID: topicURL, CanonicalURL: topicURL, ContentDestination: "internal-content", ContentType: "application/json", Status: state.TopicActive, Revision: 1}
 	snapshot.Subscriptions["subscription-1"] = state.Subscription{ID: "subscription-1", TopicID: topicURL, TopicURL: topicURL, CallbackURL: "https://subscriber.example/callback?token=opaque-token", SecretCiphertext: []byte("ciphertext-value"), SecretKeyID: "key-1", ServerID: "hub-1", ConsumerID: "consumer-1", Status: state.SubscriptionActive, Revision: 2}
 	return snapshot
 }

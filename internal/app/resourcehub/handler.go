@@ -64,6 +64,8 @@ type ContentSink interface {
 	Persist(context.Context, ContentUpdate) error
 }
 
+var ErrContentTypeMismatch = errors.New("publication content type does not match topic")
+
 type SubscriptionValidator interface {
 	ValidateSubscription(context.Context, messagestore.Destination, messagestore.SubscriptionOptions) error
 }
@@ -183,8 +185,17 @@ func (a *adapter) registerTopic(ctx context.Context, registration websubhub.Topi
 	if err != nil {
 		return websubhub.Result{}, err
 	}
-	if topic, ok := a.projection.Snapshot().Topics[topicID]; ok && topic.Status == state.TopicActive {
-		return conflict(), nil
+	contentType, err := state.NormalizeTopicContentType(registration.ContentType)
+	if err != nil {
+		return websubhub.Result{}, &websubhub.DeniedError{Reason: "topic content type is invalid"}
+	}
+	if topic, ok := a.projection.Snapshot().Topics[topicID]; ok {
+		if topic.ContentType != contentType {
+			return websubhub.Result{}, &websubhub.DeniedError{Reason: "topic content type does not match retained contract"}
+		}
+		if topic.Status == state.TopicActive {
+			return conflict(), nil
+		}
 	}
 	meta, err := a.metadata("publisher", actorID)
 	if err != nil {
@@ -197,7 +208,8 @@ func (a *adapter) registerTopic(ctx context.Context, registration websubhub.Topi
 	now := meta.OccurredAt
 	event := state.TopicRegistered{Meta: meta, Topic: state.Topic{
 		ID: topicID, CanonicalURL: registration.Topic,
-		ContentDestination: string(contentDestination), RegisteredAt: now,
+		ContentDestination: string(contentDestination), ContentType: contentType,
+		RegisteredAt: now,
 	}}
 	return websubhub.Result{}, a.events.Append(ctx, event)
 }
@@ -237,7 +249,11 @@ func (a *adapter) updateMessage(ctx context.Context, message websubhub.UpdateMes
 		Kind: kind, Topic: message.Topic, ContentType: message.ContentType,
 		Body: bytes.Clone(message.Body),
 	}
-	return websubhub.Result{}, a.content.Persist(ctx, update)
+	err := a.content.Persist(ctx, update)
+	if errors.Is(err, ErrContentTypeMismatch) {
+		return websubhub.Result{}, &websubhub.DeniedError{Reason: "publication content type does not match topic"}
+	}
+	return websubhub.Result{}, err
 }
 
 func (a *adapter) admitSubscription(ctx context.Context, subscription websubhub.Subscription, _ websubhub.RequestMetadata, _ *websubhub.Controller) (websubhub.Result, error) {

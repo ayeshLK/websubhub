@@ -18,7 +18,7 @@ package state
 
 import "time"
 
-const SchemaVersion uint16 = 1
+const SchemaVersion uint16 = 2
 
 type TopicStatus string
 
@@ -39,6 +39,7 @@ type Topic struct {
 	ID                 string      `json:"id"`
 	CanonicalURL       string      `json:"canonical_url"`
 	ContentDestination string      `json:"content_destination"`
+	ContentType        string      `json:"content_type"`
 	Status             TopicStatus `json:"status"`
 	RegisteredAt       time.Time   `json:"registered_at"`
 	RegisteredBy       string      `json:"registered_by,omitempty"`

@@ -31,7 +31,7 @@ func TestPersistPreservesExactRepresentation(t *testing.T) {
 	topicURL := "https://publisher.example.test/resource"
 	topicID, _ := persistence.TopicID(topicURL)
 	projection := fixedProjection{snapshot: state.Snapshot{Topics: map[string]state.Topic{
-		topicID: {ID: topicID, Status: state.TopicActive, ContentDestination: "content-destination"},
+		topicID: {ID: topicID, Status: state.TopicActive, ContentDestination: "content-destination", ContentType: `application/octet-stream; profile="https://example.test/p"`},
 	}}}
 	producer := &recordingProducer{}
 	ingestor, err := New(producer, projection, func() (string, error) { return "message-1", nil })
@@ -44,11 +44,32 @@ func TestPersistPreservesExactRepresentation(t *testing.T) {
 		t.Fatal(err)
 	}
 	body[0] = 0x7f
-	if producer.destination != "content-destination" || producer.message.ID != "message-1" || producer.message.ContentType != contentType || !bytes.Equal(producer.message.Body, []byte{0x00, 0xff, '\n', '{', '}'}) {
+	if producer.destination != "content-destination" || producer.message.ID != "message-1" || producer.message.ContentType != "" || !bytes.Equal(producer.message.Body, []byte{0x00, 0xff, '\n', '{', '}'}) {
 		t.Fatalf("stored message = %#v at %q", producer.message, producer.destination)
 	}
-	if len(producer.message.Metadata) != 1 || producer.message.Metadata["topic-id"] != topicID {
+	if len(producer.message.Metadata) != 0 {
 		t.Fatalf("metadata = %#v", producer.message.Metadata)
+	}
+}
+
+func TestPersistRequiresSemanticTopicContentTypeMatch(t *testing.T) {
+	topicURL := "https://publisher.example.test/resource"
+	topicID, _ := persistence.TopicID(topicURL)
+	producer := &recordingProducer{}
+	ingestor, err := New(producer, fixedProjection{snapshot: state.Snapshot{Topics: map[string]state.Topic{
+		topicID: {ID: topicID, Status: state.TopicActive, ContentDestination: "content", ContentType: "application/json; charset=utf-8"},
+	}}}, func() (string, error) { return "message-1", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	matching := resourcehub.ContentUpdate{Kind: resourcehub.ContentUpdateExact, Topic: topicURL, ContentType: "Application/JSON; CHARSET=utf-8", Body: []byte("{}")}
+	if err := ingestor.Persist(context.Background(), matching); err != nil {
+		t.Fatalf("semantic match rejected: %v", err)
+	}
+	mismatching := matching
+	mismatching.ContentType = "application/json"
+	if err := ingestor.Persist(context.Background(), mismatching); !errors.Is(err, resourcehub.ErrContentTypeMismatch) {
+		t.Fatalf("mismatch error = %v", err)
 	}
 }
 
@@ -80,7 +101,7 @@ func TestPersistReturnsDurableSendFailure(t *testing.T) {
 	topicURL := "https://publisher.example.test/resource"
 	topicID, _ := persistence.TopicID(topicURL)
 	producer := &recordingProducer{err: errors.New("broker unavailable")}
-	ingestor, err := New(producer, fixedProjection{snapshot: state.Snapshot{Topics: map[string]state.Topic{topicID: {ID: topicID, Status: state.TopicActive, ContentDestination: "content"}}}}, func() (string, error) { return "message-1", nil })
+	ingestor, err := New(producer, fixedProjection{snapshot: state.Snapshot{Topics: map[string]state.Topic{topicID: {ID: topicID, Status: state.TopicActive, ContentDestination: "content", ContentType: "text/plain"}}}}, func() (string, error) { return "message-1", nil })
 	if err != nil {
 		t.Fatal(err)
 	}

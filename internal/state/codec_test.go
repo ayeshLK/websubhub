@@ -61,4 +61,8 @@ func TestEventCodecRejectsUnknownAndTrailingData(t *testing.T) {
 	if _, err := DecodeEvent(append(encoded, []byte(` {}`)...)); err == nil || !strings.Contains(err.Error(), "trailing") {
 		t.Fatalf("trailing value error = %v", err)
 	}
+	v1 := strings.Replace(string(encoded), `"schema_version":2`, `"schema_version":1`, 1)
+	if _, err := DecodeEvent([]byte(v1)); err == nil || !strings.Contains(err.Error(), "unsupported state event schema version 1") {
+		t.Fatalf("version 1 event error = %v", err)
+	}
 }

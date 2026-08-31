@@ -137,6 +137,17 @@ broker interoperability, failure cases, and minimum per-component Kafka ACLs
 must not be described as integration-qualified. That work is deferred to the
 v1.0 stability boundary and tracked by issue #20.
 
+ADR 0023 introduces state schema version 2 and makes the normalized topic
+content type an immutable resource-topic contract. Registration defaults an
+omitted content type to `application/json`; publications must match the
+complete topic media type and parameters. Ordinary content messages persist
+only their stable message ID and exact body bytes. Delivery obtains
+`Content-Type` from topic state, and the canonical management topic DTO
+exposes it. The supported schema-v1 transition is an offline clean-state
+replacement using new state event and snapshot destinations followed by topic
+and subscription recreation. Runtime migration and mixed schema-v1/schema-v2
+state destinations are forbidden.
+
 ## Required workflow
 
 Read the relevant ADRs before changing behavior. Record a new ADR before
@@ -158,6 +169,6 @@ make license-check docs-check
 git diff --check
 ```
 
-Preserve exact payload bytes and complete content types. Never log payloads,
+Preserve exact payload bytes and complete topic content types. Never log payloads,
 authorization values, subscription secrets, callback capability queries, or
 provider credentials. Tests must avoid timing sleeps.

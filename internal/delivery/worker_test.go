@@ -43,11 +43,11 @@ func TestLibraryAttemptPreservesBytesTypeMessageIDAndSignature(t *testing.T) {
 	}))
 	defer server.Close()
 	factory := LibraryAttemptFactory{HubURL: "https://hub.example.test/websub", HTTPClient: server.Client()}
-	attempt, err := factory.New(state.Subscription{TopicURL: "https://publisher.example.test/resource", CallbackURL: server.URL}, []byte("secret"))
+	attempt, err := factory.New(state.Topic{ContentType: contentType}, state.Subscription{TopicURL: "https://publisher.example.test/resource", CallbackURL: server.URL}, []byte("secret"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := attempt.Deliver(context.Background(), messagestore.Message{ID: "message-1", Body: body, ContentType: contentType})
+	status, err := attempt.Deliver(context.Background(), messagestore.Message{ID: "message-1", Body: body})
 	if err != nil || status != http.StatusNoContent {
 		t.Fatalf("delivery status %d: %v", status, err)
 	}
@@ -103,7 +103,7 @@ func TestMalformedContentGoesDirectlyToDLQ(t *testing.T) {
 		t.Fatalf("result=%d err=%v dead letters=%#v", result, err, consumer.deadLetters)
 	}
 	message := consumer.deadLetters[0].Message
-	if message.ID != "dlq-event-1" || message.ContentType != "application/octet-stream" || message.StorageError != "" || len(message.Metadata) != 1 || message.Metadata["topic-id"] != "topic-1" {
+	if message.ID != "dlq-event-1" || message.ContentType != "" || message.StorageError != "" || len(message.Metadata) != 0 || consumer.deadLetters[0].StorageError != "bad record" {
 		t.Fatalf("sanitized DLQ message = %#v", message)
 	}
 }
@@ -125,7 +125,7 @@ func testWorker(t *testing.T, strategy string) *Worker {
 	t.Helper()
 	cfg := config.HubDefaults().Delivery
 	cfg.Retry.Strategy = strategy
-	worker, err := NewWorker(cfg, state.Topic{ID: "topic-1", ContentDestination: "content"}, state.Subscription{ID: "subscription-1", TopicID: "topic-1", TopicURL: "https://publisher.example.test/resource", CallbackURL: "https://subscriber.example.test/callback", ConsumerID: "consumer-1", ServerID: "hub-1"}, Dependencies{Administrator: fakeAdministrator{}, Events: &recordingEvents{}, Secrets: fakeSecrets{}, Attempts: fakeFactory{}, Now: func() time.Time { return time.Unix(1, 0).UTC() }, NewEventID: func() (string, error) { return "event-1", nil }, Jitter: func() float64 { return .5 }})
+	worker, err := NewWorker(cfg, state.Topic{ID: "topic-1", ContentDestination: "content", ContentType: "text/plain"}, state.Subscription{ID: "subscription-1", TopicID: "topic-1", TopicURL: "https://publisher.example.test/resource", CallbackURL: "https://subscriber.example.test/callback", ConsumerID: "consumer-1", ServerID: "hub-1"}, Dependencies{Administrator: fakeAdministrator{}, Events: &recordingEvents{}, Secrets: fakeSecrets{}, Attempts: fakeFactory{}, Now: func() time.Time { return time.Unix(1, 0).UTC() }, NewEventID: func() (string, error) { return "event-1", nil }, Jitter: func() float64 { return .5 }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func testWorker(t *testing.T, strategy string) *Worker {
 }
 
 func receivedMessage() messagestore.ReceivedMessage {
-	return messagestore.ReceivedMessage{Message: messagestore.Message{ID: "message-1", Body: []byte("body"), ContentType: "text/plain"}, Receipt: messagestore.Receipt{Value: "receipt-1"}}
+	return messagestore.ReceivedMessage{Message: messagestore.Message{ID: "message-1", Body: []byte("body")}, Receipt: messagestore.Receipt{Value: "receipt-1"}}
 }
 
 type attemptResult struct {
@@ -153,7 +153,9 @@ func (a *sequenceAttempt) Deliver(context.Context, messagestore.Message) (int, e
 
 type fakeFactory struct{}
 
-func (fakeFactory) New(state.Subscription, []byte) (Attempt, error) { return &sequenceAttempt{}, nil }
+func (fakeFactory) New(state.Topic, state.Subscription, []byte) (Attempt, error) {
+	return &sequenceAttempt{}, nil
+}
 
 type fakeSecrets struct{}
 

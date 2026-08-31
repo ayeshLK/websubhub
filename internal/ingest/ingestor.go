@@ -22,7 +22,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"mime"
 
 	"github.com/ayeshLK/websubhub/internal/app/resourcehub"
 	"github.com/ayeshLK/websubhub/internal/persistence"
@@ -64,11 +63,9 @@ func (i *Ingestor) Persist(ctx context.Context, update resourcehub.ContentUpdate
 	if update.Topic == "" {
 		return errors.New("content topic is required")
 	}
-	if update.ContentType == "" {
-		return errors.New("content type is required")
-	}
-	if _, _, err := mime.ParseMediaType(update.ContentType); err != nil {
-		return fmt.Errorf("invalid content type: %w", err)
+	contentType, err := state.NormalizeContentType(update.ContentType)
+	if err != nil {
+		return err
 	}
 	topicID, err := persistence.TopicID(update.Topic)
 	if err != nil {
@@ -78,6 +75,9 @@ func (i *Ingestor) Persist(ctx context.Context, update resourcehub.ContentUpdate
 	if !ok || topic.Status != state.TopicActive || topic.ContentDestination == "" {
 		return ErrTopicUnavailable
 	}
+	if contentType != topic.ContentType {
+		return resourcehub.ErrContentTypeMismatch
+	}
 	messageID, err := i.newMessageID()
 	if err != nil {
 		return fmt.Errorf("generate content message ID: %w", err)
@@ -85,7 +85,7 @@ func (i *Ingestor) Persist(ctx context.Context, update resourcehub.ContentUpdate
 	if messageID == "" {
 		return errors.New("content message ID is empty")
 	}
-	message := messagestore.Message{ID: messageID, Body: bytes.Clone(update.Body), ContentType: update.ContentType, Metadata: map[string]string{"topic-id": topic.ID}}
+	message := messagestore.Message{ID: messageID, Body: bytes.Clone(update.Body)}
 	if err := i.producer.Send(ctx, messagestore.Destination(topic.ContentDestination), message); err != nil {
 		return fmt.Errorf("persist content message: %w", err)
 	}

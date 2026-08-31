@@ -35,7 +35,7 @@ func TestQueriesCanonicalSnapshotWithStableFilteringAndBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if topics.Revision != 9 || len(topics.Topics) != 1 || topics.Topics[0].ID != "topic-a" {
+	if topics.Revision != 9 || len(topics.Topics) != 1 || topics.Topics[0].ID != "topic-a" || topics.Topics[0].ContentType != "application/json" {
 		t.Fatalf("topics = %#v", topics)
 	}
 	subscriptions, err := service.ListSubscriptions(t.Context(), SubscriptionQuery{Limit: 1, TopicID: "topic-a", Status: "stale"})
@@ -123,8 +123,8 @@ func managementSnapshot() state.Snapshot {
 	now := time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC)
 	snapshot := state.EmptySnapshot()
 	snapshot.Revision = 9
-	snapshot.Topics["topic-a"] = state.Topic{ID: "topic-a", CanonicalURL: "https://publisher.example/a", ContentDestination: "internal-a", Status: state.TopicActive, RegisteredAt: now, Revision: 1}
-	snapshot.Topics["topic-z"] = state.Topic{ID: "topic-z", CanonicalURL: "https://publisher.example/z", ContentDestination: "internal-z", Status: state.TopicInactive, RegisteredAt: now, Revision: 8}
+	snapshot.Topics["topic-a"] = state.Topic{ID: "topic-a", CanonicalURL: "https://publisher.example/a", ContentDestination: "internal-a", ContentType: "application/json", Status: state.TopicActive, RegisteredAt: now, Revision: 1}
+	snapshot.Topics["topic-z"] = state.Topic{ID: "topic-z", CanonicalURL: "https://publisher.example/z", ContentDestination: "internal-z", ContentType: "application/json", Status: state.TopicInactive, RegisteredAt: now, Revision: 8}
 	snapshot.Subscriptions["subscription-b"] = state.Subscription{
 		ID: "subscription-b", TopicID: "topic-a", TopicURL: "https://publisher.example/a",
 		CallbackURL:      "https://subscriber.example/callback?token=capability-token#fragment",

@@ -27,7 +27,7 @@ func meta(id string) EventMetadata {
 	return EventMetadata{SchemaVersion: SchemaVersion, EventID: id, OccurredAt: testTime, Actor: Actor{Type: "test", ID: "actor"}}
 }
 func topicEvent() TopicRegistered {
-	return TopicRegistered{Meta: meta("event-topic"), Topic: Topic{ID: "topic-1", CanonicalURL: "https://publisher.example/resource", ContentDestination: "content-1", RegisteredAt: testTime, RegisteredBy: "actor"}}
+	return TopicRegistered{Meta: meta("event-topic"), Topic: Topic{ID: "topic-1", CanonicalURL: "https://publisher.example/resource", ContentDestination: "content-1", ContentType: "application/json", RegisteredAt: testTime, RegisteredBy: "actor"}}
 }
 func subscriptionEvent() SubscriptionVerified {
 	return SubscriptionVerified{Meta: meta("event-sub"), Subscription: Subscription{ID: "sub-1", TopicID: "topic-1", TopicURL: "https://publisher.example/resource", CallbackURL: "https://subscriber.example/callback?cap=redacted", SecretCiphertext: []byte("ciphertext"), SecretKeyID: "key-1", LeaseStartedAt: testTime, EffectiveLeaseSeconds: "86400", ServerID: "hub-1", ConsumerID: "consumer-1"}}
@@ -145,11 +145,35 @@ func TestSnapshotEncodingIsDeterministicAndStrict(t *testing.T) {
 	if roundTrip.Revision != 2 || roundTrip.Subscriptions["sub-1"].ConsumerID != "consumer-1" {
 		t.Fatalf("round trip = %#v", roundTrip)
 	}
+	if roundTrip.Topics["topic-1"].ContentType != "application/json" {
+		t.Fatalf("topic content type = %q", roundTrip.Topics["topic-1"].ContentType)
+	}
+	if _, err := DecodeSnapshot([]byte(`{"schema_version":1,"revision":0,"topics":[],"subscriptions":[]}`)); err == nil {
+		t.Fatal("version 1 snapshot accepted")
+	}
 	if _, err := DecodeSnapshot([]byte(`{"schema_version":3,"revision":0,"topics":[],"subscriptions":[]}`)); err == nil {
 		t.Fatal("unknown version accepted")
 	}
 	if _, err := DecodeSnapshot([]byte(`{"schema_version":2,"revision":0,"topics":[],"subscriptions":[],"provider_offset":1}`)); err == nil {
 		t.Fatal("unknown field accepted")
+	}
+}
+
+func TestReducerRejectsTopicContentTypeChange(t *testing.T) {
+	reducer := Reducer{}
+	snapshot, _, err := reducer.Apply(EmptySnapshot(), topicEvent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err = reducer.Apply(snapshot, TopicDeregistered{Meta: meta("deregister"), TopicID: "topic-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := topicEvent()
+	changed.Meta = meta("reregister")
+	changed.Topic.ContentType = "text/plain"
+	if _, _, err := reducer.Apply(snapshot, changed); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("content type change error = %v", err)
 	}
 }
 
