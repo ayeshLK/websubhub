@@ -1,0 +1,46 @@
+name: Sync Docker Hub profiles
+run-name: Sync Docker Hub descriptions and overviews
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-dockerhub-profiles
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Publish profile content
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    environment: release
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Update websubhub profile
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5
+        with:
+          username: ayeshalmeida
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ayeshalmeida/websubhub
+          short-description: HTTP event broker for durable, at-least-once WebSub delivery backed by your Kafka.
+          readme-filepath: docs/dockerhub/websubhub.md
+      - name: Update websubhub-consolidator profile
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5
+        with:
+          username: ayeshalmeida
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ayeshalmeida/websubhub-consolidator
+          short-description: Canonical state and snapshot service for WebSubHub deployments.
+          readme-filepath: docs/dockerhub/websubhub-consolidator.md

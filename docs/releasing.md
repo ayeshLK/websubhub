@@ -42,6 +42,19 @@ Preview releases do not move `latest`, major, or major/minor tags. Images run
 as non-root, contain one component, and carry SBOM, provenance, and keyless
 signatures.
 
+## Docker Hub profile content
+
+The version-controlled Docker Hub short descriptions and overview sources are:
+
+- [`docs/dockerhub/websubhub.md`](dockerhub/websubhub.md);
+- [`docs/dockerhub/websubhub-consolidator.md`](dockerhub/websubhub-consolidator.md).
+
+The `Sync Docker Hub profiles` workflow publishes both profiles through the
+protected `release` environment and its scoped `DOCKERHUB_TOKEN`. It runs after
+a successful `Release` workflow and can also be dispatched manually from
+`main` to publish reviewed corrections or recover a failed synchronization.
+Profile synchronization does not publish, move, or delete image tags.
+
 ## One-time repository setup
 
 Before the first release, a repository administrator must:
@@ -99,6 +112,9 @@ signing. The container check builds both production targets and executes their
 1. Review the GitHub product profile for the release. Confirm the repository
    description, topics, README positioning and current-version status, primary
    links, badges, and social preview accurately represent the shipped product.
+   Review both Docker Hub short descriptions and overview sources for the same
+   product version, supported tags and platforms, component responsibilities,
+   configuration boundary, and security guidance.
    Revisit provider-specific wording such as "backed by Kafka" as the product
    gains additional supported profiles; do not let current implementation
    detail become a permanent product-identity constraint.
@@ -122,7 +138,10 @@ signing. The container check builds both production targets and executes their
 10. Confirm both image digests and all release assets, signatures, SBOMs, and
    attestations exist. The workflow publishes the GitHub draft only after both
    container publications succeed.
-11. Approve CI on the generated next-development pull request, verify its patch
+11. Confirm the automatically triggered `Sync Docker Hub profiles` workflow
+    publishes both reviewed short descriptions and overviews. Dispatch it
+    manually from `main` if synchronization needs to be retried.
+12. Approve CI on the generated next-development pull request, verify its patch
     increment, and merge it.
 
 Do not manually create, move, or delete a release tag. If failure occurs after

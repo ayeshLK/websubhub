@@ -78,6 +78,7 @@ jobs:
             echo "- [ ] Review the repository description and topics."
             echo "- [ ] Confirm the README positioning, current release/status, primary links, and badges match $TAG."
             echo "- [ ] Review the social preview and update it when the product story or visual identity has materially changed."
+            echo "- [ ] Confirm both Docker Hub short descriptions and overview sources match $TAG, the tag policy, and each component's role."
             echo "- [ ] Revisit provider-specific branding so current implementation details do not unnecessarily constrain the product identity."
             echo
             echo "After this pull request passes CI and is merged, dispatch the **Release** workflow from main."
