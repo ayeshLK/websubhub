@@ -71,7 +71,7 @@ product boundary.
 
 ### Prerequisites
 
-- Go 1.25.8 or a newer supported Go release
+- Go 1.26.8 or a newer supported Go release
 - Docker with Compose v2
 - OpenSSL
 - GNU Make (optional, but used by the commands below)

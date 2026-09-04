@@ -6,7 +6,7 @@ boundary change.
 
 ## Local validation
 
-Use Go 1.25 or newer, then run:
+Use Go 1.26.8 or newer, then run:
 
 ```sh
 make check
