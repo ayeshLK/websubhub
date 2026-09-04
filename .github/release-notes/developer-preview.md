@@ -14,6 +14,15 @@ persisted-state compatibility.
 
 ## Preview limitations
 
+The `v0.7.0` topic-governed content-type contract is not an in-place state
+upgrade from an earlier preview. Stop every hub and consolidator, retain the
+old state destinations for rollback, configure new empty state-event and
+snapshot destinations, then re-register topics and subscriptions. Earlier
+preview processes and `v0.7.0` processes must never share state destinations,
+even though both use schema version 1. See the
+[installation guide](../../docs/installing.md#upgrade-and-rollback-boundary)
+for the complete transition and rollback procedure.
+
 Starting with v0.6.0, existing v0.5.0 hub configurations must explicitly set
 `server.auth.mode` and `operations.auth.mode` to `none` or `jwt`; omission is a
 startup error. The packaged developer configuration uses `none`. Production
