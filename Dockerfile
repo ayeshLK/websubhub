@@ -14,7 +14,7 @@
 
 # syntax=docker/dockerfile:1.18
 
-FROM --platform=$BUILDPLATFORM golang:1.25.8-alpine3.23@sha256:8e02eb337d9e0ea459e041f1ee5eece41cbb61f1d83e7d883a3e2fb4862063fa AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.8-alpine3.23@sha256:33ce311e5eecedee48ec1b84419c1306e9fbd71009f0d5c3f2a6904b579c1ecc AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev

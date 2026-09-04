@@ -12,7 +12,7 @@ binaries.
 - Allowed dependency licenses are Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC,
   and MIT unless an explicit legal review records another license.
 - Keep provider SDKs behind internal provider packages.
-- Do not raise the Go 1.25.8 minimum solely because a newer local toolchain is
+- Do not raise the Go 1.26.8 minimum solely because a newer local toolchain is
   available.
 - Run vulnerability, secret, and license checks in CI. A suppression must be
   narrow, justified, reviewed, and time-bounded.

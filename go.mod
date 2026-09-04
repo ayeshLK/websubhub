@@ -1,6 +1,6 @@
 module github.com/ayeshLK/websubhub
 
-go 1.25.8
+go 1.26.8
 
 require (
 	github.com/ayeshLK/lib-websubhub v0.6.0
