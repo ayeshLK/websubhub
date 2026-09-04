@@ -30,7 +30,7 @@ profile, not part of the public integration contract. The product boundary is
 designed to support additional persistence providers in the future.
 
 > [!IMPORTANT]
-> The current release, [`v0.6.0`](https://github.com/ayeshLK/websubhub/releases/tag/v0.6.0),
+> The current release, [`v0.7.0`](https://github.com/ayeshLK/websubhub/releases/tag/v0.7.0),
 > is a pre-1.0 Kafka BYOB developer preview. It implements the WebSub
 > resource-topic path and is not a production-readiness claim. Delivery is at
 > least once, so subscribers must handle duplicates idempotently.
@@ -105,7 +105,7 @@ WebSubHub keeps resource distribution and immutable event streams distinct.
 
 | Contract | Intended use | Status |
 |---|---|---|
-| **WebSub resource topic** | Distribute the current representation of a URL-addressed resource using the W3C WebSub lifecycle | Available in the `v0.6.0` preview |
+| **WebSub resource topic** | Distribute the current representation of a URL-addressed resource using the W3C WebSub lifecycle | Available in the `v0.7.0` preview |
 | **CloudEvents event stream** | Distribute immutable events with broker-owned retention, progress, pause/resume, replay, and DLQ semantics | Public contract is gated and not implemented |
 
 WebSub conformance claims apply only to relevant resource-topic behavior. The
@@ -195,7 +195,7 @@ make build
 Build metadata can be supplied explicitly:
 
 ```sh
-make build VERSION=v0.6.1-dev COMMIT=local BUILD_DATE=2026-08-31T00:00:00Z
+make build VERSION=v0.7.0-dev COMMIT=local BUILD_DATE=2026-09-04T00:00:00Z
 ```
 
 The binaries accept a process-specific TOML file:
@@ -233,11 +233,11 @@ version for both processes.
 Container images are published separately for Linux `amd64` and `arm64`:
 
 ```sh
-docker pull ayeshalmeida/websubhub:0.6.0
-docker pull ayeshalmeida/websubhub-consolidator:0.6.0
+docker pull ayeshalmeida/websubhub:0.7.0
+docker pull ayeshalmeida/websubhub-consolidator:0.7.0
 
-docker run --rm ayeshalmeida/websubhub:0.6.0 --version
-docker run --rm ayeshalmeida/websubhub-consolidator:0.6.0 --version
+docker run --rm ayeshalmeida/websubhub:0.7.0 --version
+docker run --rm ayeshalmeida/websubhub-consolidator:0.7.0 --version
 ```
 
 Runtime deployments must mount the appropriate configuration and secret files
@@ -366,10 +366,10 @@ test/acceptance/                  end-to-end Compose acceptance test
 
 ## Project status
 
-The current release is `v0.6.0`, a pre-1.0 Kafka BYOB developer preview. It
+The current release is `v0.7.0`, a pre-1.0 Kafka BYOB developer preview. It
 publishes separate `websubhub` and `websubhub-consolidator` archives for six
 platform and architecture combinations, plus separate multi-architecture
-Docker Hub images. `main` continues development toward `v0.6.1`.
+Docker Hub images.
 
 The preview is suitable for evaluation and integration feedback, not a claim
 of production readiness. Broader request-admission and load/isolation

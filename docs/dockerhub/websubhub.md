@@ -7,7 +7,7 @@ ordinary HTTP, WebSubHub owns durable content and subscription behavior, and
 verified subscribers receive at-least-once HTTP push delivery without
 integrating with Kafka clients, offsets, consumer groups, or credentials.
 
-> **Developer preview:** `0.6.0` is a pre-1.0 Kafka Bring Your Own Broker
+> **Developer preview:** `0.7.0` is a pre-1.0 Kafka Bring Your Own Broker
 > (BYOB) preview, not a production-readiness claim. Delivery is at least once;
 > subscribers must handle duplicates idempotently.
 
@@ -37,8 +37,8 @@ WebSubHub version.
 Pull the current preview and inspect its embedded build identity:
 
 ```console
-docker pull ayeshalmeida/websubhub:0.6.0
-docker run --rm ayeshalmeida/websubhub:0.6.0 --version
+docker pull ayeshalmeida/websubhub:0.7.0
+docker run --rm ayeshalmeida/websubhub:0.7.0 --version
 ```
 
 The image intentionally contains no default configuration or credentials. For
@@ -62,7 +62,7 @@ docker run -d \
   -p 127.0.0.1:9090:9090 \
   --mount type=bind,src="$PWD/websubhub.toml",dst=/etc/websubhub/config.toml,readonly \
   --mount type=bind,src="$PWD/secrets",dst=/run/secrets,readonly \
-  ayeshalmeida/websubhub:0.6.0 \
+  ayeshalmeida/websubhub:0.7.0 \
   --config /etc/websubhub/config.toml
 ```
 

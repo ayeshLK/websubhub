@@ -10,7 +10,7 @@ components released under one version:
 
 A usable deployment requires Kafka and at least one instance of each
 component. Always deploy the same WebSubHub version for both processes. This
-guide uses the current `0.6.0` developer preview in its examples.
+guide uses the current `0.7.0` developer preview in its examples.
 
 ## Choose a distribution
 
@@ -26,8 +26,8 @@ Container images support Linux `amd64` and `arm64`. Docker selects the matching
 platform from the manifest automatically:
 
 ```text
-docker.io/ayeshalmeida/websubhub:0.6.0
-docker.io/ayeshalmeida/websubhub-consolidator:0.6.0
+docker.io/ayeshalmeida/websubhub:0.7.0
+docker.io/ayeshalmeida/websubhub-consolidator:0.7.0
 ```
 
 The preview does not publish `latest`, major, or major/minor tags. Production
@@ -41,12 +41,12 @@ GitHub Release. With the GitHub CLI, a Linux `amd64` installation can be
 downloaded with:
 
 ```sh
-gh release download v0.6.0 \
+gh release download v0.7.0 \
   --repo ayeshLK/websubhub \
-  --pattern 'websubhub_0.6.0_linux_amd64.tar.gz' \
-  --pattern 'websubhub-consolidator_0.6.0_linux_amd64.tar.gz' \
-  --pattern 'websubhub_0.6.0_checksums.txt' \
-  --pattern 'websubhub_0.6.0_checksums.txt.sigstore.json'
+  --pattern 'websubhub_0.7.0_linux_amd64.tar.gz' \
+  --pattern 'websubhub-consolidator_0.7.0_linux_amd64.tar.gz' \
+  --pattern 'websubhub_0.7.0_checksums.txt' \
+  --pattern 'websubhub_0.7.0_checksums.txt.sigstore.json'
 ```
 
 Verify the checksums, Sigstore bundle, and GitHub provenance before extracting
@@ -56,14 +56,14 @@ the archives. The exact commands and workflow identity are in the
 Extract the archives into separate directories:
 
 ```sh
-tar -xzf websubhub_0.6.0_linux_amd64.tar.gz
-tar -xzf websubhub-consolidator_0.6.0_linux_amd64.tar.gz
+tar -xzf websubhub_0.7.0_linux_amd64.tar.gz
+tar -xzf websubhub-consolidator_0.7.0_linux_amd64.tar.gz
 ```
 
 Each directory contains only its component:
 
 ```text
-<component>_0.6.0_<os>_<arch>/
+<component>_0.7.0_<os>_<arch>/
 ├── bin/<component>[.exe]
 ├── config/<component>.toml
 ├── README.md
@@ -138,8 +138,8 @@ isolated, trusted network.
 Pull both exact-version images:
 
 ```sh
-docker pull docker.io/ayeshalmeida/websubhub:0.6.0
-docker pull docker.io/ayeshalmeida/websubhub-consolidator:0.6.0
+docker pull docker.io/ayeshalmeida/websubhub:0.7.0
+docker pull docker.io/ayeshalmeida/websubhub-consolidator:0.7.0
 ```
 
 The images are minimal, run as a non-root user, contain no shell, and include
@@ -166,7 +166,7 @@ docker run -d \
   --security-opt no-new-privileges \
   --mount type=bind,src="$PWD/websubhub-consolidator.toml",dst=/etc/websubhub/config.toml,readonly \
   --mount type=bind,src="$PWD/secrets",dst=/run/secrets,readonly \
-  docker.io/ayeshalmeida/websubhub-consolidator:0.6.0 \
+  docker.io/ayeshalmeida/websubhub-consolidator:0.7.0 \
   --config /etc/websubhub/config.toml
 
 docker run -d \
@@ -179,7 +179,7 @@ docker run -d \
   -p 127.0.0.1:9090:9090 \
   --mount type=bind,src="$PWD/websubhub.toml",dst=/etc/websubhub/config.toml,readonly \
   --mount type=bind,src="$PWD/secrets",dst=/run/secrets,readonly \
-  docker.io/ayeshalmeida/websubhub:0.6.0 \
+  docker.io/ayeshalmeida/websubhub:0.7.0 \
   --config /etc/websubhub/config.toml
 ```
 
@@ -198,9 +198,9 @@ production deployment definition.
 Inspect the embedded version:
 
 ```sh
-docker run --rm docker.io/ayeshalmeida/websubhub:0.6.0 --version
+docker run --rm docker.io/ayeshalmeida/websubhub:0.7.0 --version
 docker run --rm \
-  docker.io/ayeshalmeida/websubhub-consolidator:0.6.0 --version
+  docker.io/ayeshalmeida/websubhub-consolidator:0.7.0 --version
 ```
 
 Verify both image signatures and provenance before recording immutable

@@ -7,7 +7,7 @@ serves the canonical snapshots used by hub processes. The current Kafka Bring
 Your Own Broker (BYOB) profile stores those state events in Kafka while keeping
 provider details behind the WebSubHub persistence boundary.
 
-> **Developer preview:** `0.6.0` is a pre-1.0 Kafka BYOB preview, not a
+> **Developer preview:** `0.7.0` is a pre-1.0 Kafka BYOB preview, not a
 > production-readiness claim. Run the consolidator with the same exact version
 > as every `websubhub` instance in the deployment.
 
@@ -32,8 +32,8 @@ instances.
 Pull the current preview and inspect its embedded build identity:
 
 ```console
-docker pull ayeshalmeida/websubhub-consolidator:0.6.0
-docker run --rm ayeshalmeida/websubhub-consolidator:0.6.0 --version
+docker pull ayeshalmeida/websubhub-consolidator:0.7.0
+docker run --rm ayeshalmeida/websubhub-consolidator:0.7.0 --version
 ```
 
 The image intentionally contains no default configuration or credentials. For
@@ -56,7 +56,7 @@ docker run -d \
   --security-opt no-new-privileges \
   --mount type=bind,src="$PWD/websubhub-consolidator.toml",dst=/etc/websubhub/config.toml,readonly \
   --mount type=bind,src="$PWD/secrets",dst=/run/secrets,readonly \
-  ayeshalmeida/websubhub-consolidator:0.6.0 \
+  ayeshalmeida/websubhub-consolidator:0.7.0 \
   --config /etc/websubhub/config.toml
 ```
 

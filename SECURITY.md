@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-WebSubHub v0.5.0 is a developer preview, not a supported production release.
+WebSubHub v0.7.0 is a developer preview, not a supported production release.
 Security fixes are made on the main development branch and will be published in
 subsequent preview releases.
 
@@ -20,10 +20,10 @@ triage.
 
 ## Current status
 
-The repository has published the `v0.5.0` Kafka BYOB developer preview. Main
-is developing explicit unauthenticated or JWT listener modes for v0.6.0, with
-JWT authentication and scope authorization retained for secured deployments,
-callback SSRF defenses, encrypted persisted subscription secrets, durable state/content handling,
+The repository has published the `v0.7.0` Kafka BYOB developer preview. It
+provides explicit unauthenticated or JWT listener modes, JWT authentication and
+scope authorization for secured deployments, callback SSRF defenses, encrypted
+persisted subscription secrets, durable state and content handling,
 at-least-once delivery, and operational inspection. It has not completed
-failure qualification, upgrade, or production-hardening gates and must not be
-treated as a supported production deployment.
+failure qualification or production-hardening gates and must not be treated as
+a supported production deployment.
